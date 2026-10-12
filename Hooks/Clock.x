@@ -140,7 +140,7 @@ static BOOL LGClockPublishPath(CGPathRef path, CGSize size, CGFloat scale) {
     }
     memset(alpha, 0, bytes);
     CGContextRef context = CGBitmapContextCreate(alpha, width, height, 8, width,
-                                                  NULL, kCGImageAlphaOnly);
+                                                  NULL, (CGBitmapInfo)kCGImageAlphaOnly);
     if (!context) {
         LGClockLog(@"mask bitmap context failed dims=%ux%u", width, height);
         return NO;
