@@ -1,4 +1,5 @@
 #import "LGPrefsSurfaceCatalog.h"
+#import "../Shared/LGCompat.h"
 #import "LGPrefsDataSupport.h"
 #import "../Shared/LGSharedSupport.h"
 
@@ -117,10 +118,10 @@ NSString *LGPrefsSurfaceSubtitle(NSString *identifier) {
 UIColor *LGPrefsSurfaceTintColor(NSString *identifier) {
     if ([identifier isEqualToString:LGPrefsSurfaceLockscreen]) return UIColor.systemRedColor;
     if ([identifier isEqualToString:LGPrefsSurfaceAppLibrary]) return UIColor.systemGreenColor;
-    if ([identifier isEqualToString:LGPrefsSurfaceMoreOptions]) return UIColor.systemIndigoColor;
+    if ([identifier isEqualToString:LGPrefsSurfaceMoreOptions]) return LGSystemIndigoColor();
     if ([identifier isEqualToString:LGPrefsSurfaceSettings]) return UIColor.systemGrayColor;
     if ([identifier isEqualToString:LGPrefsSurfaceKeyboard]) return UIColor.systemOrangeColor;
-    if ([identifier isEqualToString:LGPrefsSurfaceTabBar]) return UIColor.systemIndigoColor;
+    if ([identifier isEqualToString:LGPrefsSurfaceTabBar]) return LGSystemIndigoColor();
     if ([identifier isEqualToString:LGPrefsSurfaceAssistiveTouch]) return UIColor.systemPurpleColor;
     if ([identifier isEqualToString:LGPrefsSurfaceVolumeHUD]) return UIColor.systemYellowColor;
     if ([identifier isEqualToString:LGPrefsSurfacePillHUD]) return UIColor.systemRedColor;

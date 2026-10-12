@@ -31,7 +31,8 @@ extern void * const kLGControlledByEnabledKey;
 UIView *LGMakeNavCardGlyphView(NSString *symbolName, UIColor *tintColor);
 UIColor *LGSubpageCardBackgroundColor(void);
 UIView *LGMakeSectionDivider(void);
-void LGApplyNavigationBarAppearance(UINavigationItem *navigationItem);
+void LGApplyNavigationBarAppearance(UIViewController *controller);
+void LGRestoreNavigationBarAppearanceIfLeaving(UIViewController *controller);
 void LGInstallScrollableStack(UIViewController *controller,
                               CGFloat topInset,
                               CGFloat stackSpacing,

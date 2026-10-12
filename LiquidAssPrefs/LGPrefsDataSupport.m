@@ -284,36 +284,46 @@ void LGSetNeedsRespring(BOOL needsRespring) {
     [[NSNotificationCenter defaultCenter] postNotificationName:kLGPrefsRespringChangedNotification object:nil];
 }
 
-void LGForceSynchronizePreferences(void) {
+static NSDictionary<NSString *, id> *sLGStoredPreferences;
+static BOOL sLGCommitScheduled;
 
+static NSDictionary<NSString *, id> *LGStoredPreferences(void) {
+    if (!sLGStoredPreferences) sLGStoredPreferences = [LGCopyStoredPreferences() copy];
+    return sLGStoredPreferences;
+}
+
+static void LGCommitPendingPreferences(void) {
     LGEnsurePendingPreferencesInitialized();
+    sLGCommitScheduled = NO;
+    if (!sLGPendingPreferences.count && !sLGPendingPreferenceRemovals.count) return;
 
-    NSDictionary<NSString *, id> *pendingValues = [sLGPendingPreferences copy];
-    NSSet<NSString *> *pendingRemovals = [sLGPendingPreferenceRemovals copy];
-    LGEnsurePreferencesWriteQueueInitialized();
-    dispatch_sync(sLGPrefsWriteQueue, ^{
-        [pendingValues enumerateKeysAndObjectsUsingBlock:^(NSString *key, id value, BOOL *stop) {
-            (void)stop;
-            CFPreferencesSetAppValue((__bridge CFStringRef)key,
-                                     (__bridge CFPropertyListRef)value,
-                                     (__bridge CFStringRef)LGPrefsDomain);
-        }];
-        for (NSString *key in pendingRemovals) {
-            CFPreferencesSetAppValue((__bridge CFStringRef)key,
-                                     NULL,
-                                     (__bridge CFStringRef)LGPrefsDomain);
-        }
-        BOOL wrote = CFPreferencesAppSynchronize((__bridge CFStringRef)LGPrefsDomain);
-        LGLog(@"[prefs-apply] committed=%lu removed=%lu wrote=%d; posting Reload",
-              (unsigned long)pendingValues.count,
-              (unsigned long)pendingRemovals.count,
-              wrote);
-        notify_post(LGPrefsChangedNotificationCString);
-    });
-
+    NSDictionary<NSString *, id> *values = [sLGPendingPreferences copy];
+    NSSet<NSString *> *removals = [sLGPendingPreferenceRemovals copy];
     [sLGPendingPreferences removeAllObjects];
     [sLGPendingPreferenceRemovals removeAllObjects];
 
+    LGEnsurePreferencesWriteQueueInitialized();
+    dispatch_sync(sLGPrefsWriteQueue, ^{
+        LGCommitPreferenceChanges(values, removals);
+    });
+
+    NSMutableDictionary<NSString *, id> *stored = [LGStoredPreferences() mutableCopy];
+    [stored addEntriesFromDictionary:values];
+    [stored removeObjectsForKeys:removals.allObjects];
+    sLGStoredPreferences = [stored copy];
+}
+
+static void LGScheduleCommitPendingPreferences(void) {
+    if (sLGCommitScheduled) return;
+    sLGCommitScheduled = YES;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        LGCommitPendingPreferences();
+    });
+}
+
+void LGForceSynchronizePreferences(void) {
+    LGCommitPendingPreferences();
+    sLGStoredPreferences = nil;
     LGSetRespringBarDismissed(NO);
     LGSetNeedsRespring(YES);
 }
@@ -324,17 +334,12 @@ NSNumber *LGReadPreference(NSString *key, NSNumber *fallback) {
 }
 
 id LGReadPreferenceObject(NSString *key, id fallback) {
+    if (!key.length) return fallback;
     LGEnsurePendingPreferencesInitialized();
-    if ([sLGPendingPreferences objectForKey:key]) {
-        return sLGPendingPreferences[key];
-    }
-    if ([sLGPendingPreferenceRemovals containsObject:key]) {
-        return fallback;
-    }
-    CFPropertyListRef value = CFPreferencesCopyAppValue((__bridge CFStringRef)key,
-                                                        (__bridge CFStringRef)LGPrefsDomain);
-    id obj = CFBridgingRelease(value);
-    return obj ?: fallback;
+    id pending = sLGPendingPreferences[key];
+    if (pending) return pending;
+    if ([sLGPendingPreferenceRemovals containsObject:key]) return fallback;
+    return LGStoredPreferences()[key] ?: fallback;
 }
 
 void LGWritePreference(NSString *key, NSNumber *value) {
@@ -346,7 +351,7 @@ void LGWritePreferenceObject(NSString *key, id value) {
     LGEnsurePendingPreferencesInitialized();
     sLGPendingPreferences[key] = value;
     [sLGPendingPreferenceRemovals removeObject:key];
-    LGLog(@"[prefs-pending] staged %@=%@", key, value);
+    LGScheduleCommitPendingPreferences();
 }
 
 void LGWritePreferenceAndMaybeRequireRespring(NSString *key, NSNumber *value) {
@@ -358,7 +363,7 @@ void LGRemovePreference(NSString *key) {
     LGEnsurePendingPreferencesInitialized();
     [sLGPendingPreferences removeObjectForKey:key];
     [sLGPendingPreferenceRemovals addObject:key];
-    LGLog(@"[prefs-pending] staged removal %@", key);
+    LGScheduleCommitPendingPreferences();
 }
 
 NSDictionary *LGSwitchSetting(NSString *key, NSString *title, NSString *subtitle, BOOL fallback) {
@@ -1127,11 +1132,8 @@ BOOL LGImportPreferencesJSONString(NSString *jsonString, NSError **error) {
 }
 
 void LGResetAllPreferences(void) {
-    CFArrayRef allKeys = CFPreferencesCopyKeyList((__bridge CFStringRef)LGPrefsDomain,
-                                                  kCFPreferencesCurrentUser,
-                                                  kCFPreferencesAnyHost);
-    NSArray *keys = CFBridgingRelease(allKeys);
-    for (id key in keys) {
+    sLGStoredPreferences = nil;
+    for (id key in LGStoredPreferences().allKeys) {
         if (![key isKindOfClass:[NSString class]]) continue;
         if ([(NSString *)key isEqualToString:@"Global.Enabled"]) continue;
         if ([(NSString *)key hasPrefix:kLGDynamicDefaultPrefix]) continue;
