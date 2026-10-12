@@ -1113,7 +1113,7 @@ static void LGRestartAssistiveTouchDaemon(void) {
 
 - (UISwitch *)configuredToggleForItem:(NSDictionary *)item {
     UISwitch *toggle = [[LGPrefsSwitchClass() alloc] initWithFrame:CGRectZero];
-    toggle.onTintColor = UIColor.systemGreenColor;
+    toggle.onTintColor = UIColor.systemBlueColor;
     toggle.on = [LGReadPreference(item[@"key"], item[@"default"]) boolValue];
     objc_setAssociatedObject(toggle, kLGDefaultValueKey, item[@"default"], OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     objc_setAssociatedObject(toggle, kLGPreferenceKeyKey, item[@"key"], OBJC_ASSOCIATION_COPY_NONATOMIC);
