@@ -30,14 +30,31 @@ static void LGUpdateSpotlightTextField(UIView *view) {
         0.0, -5.0);
 }
 
+static BOOL LGSpotlightIsLegacy(void) {
+    return NSProcessInfo.processInfo.operatingSystemVersion.majorVersion < 13;
+}
+
+static UIView *LGSpotlightLegacyTintView(UIView *blurView) {
+    UIView *field = blurView.superview;
+    if (!field || ![field respondsToSelector:NSSelectorFromString(@"tintView")]) return nil;
+    UIView *tint = nil;
+    @try { tint = [field valueForKey:@"tintView"]; } @catch (__unused NSException *e) {}
+    return [tint isKindOfClass:UIView.class] ? tint : nil;
+}
+
 static void LGUpdateSpotlightGlass(UIView *view) {
+    if (LGSpotlightIsLegacy() && !hasAncestorOfClassName(view.superview, @"SPUITextField")) return;
+    UIView *legacyTint = LGSpotlightIsLegacy() ? LGSpotlightLegacyTintView(view) : nil;
     if (!lgHostEnabled(@"Spotlight") || !view.window || CGRectIsEmpty(view.bounds)) {
+        BOOL hadGlass = LGMaterialHasGlass(view, kGlassKey);
         LGRemoveGlassFromMaterial(view, kGlassKey);
+        if (hadGlass) legacyTint.hidden = NO;
         return;
     }
     CGFloat radius = CGRectGetHeight(view.bounds) * 0.5;
-    LGInstallRegisteredGlassInMaterial(view, kGlassKey, @"Spotlight",
-                                       UIEdgeInsetsZero, radius, nil);
+    if (LGInstallRegisteredGlassInMaterial(view, kGlassKey, @"Spotlight",
+                                           UIEdgeInsetsZero, radius, nil))
+        legacyTint.hidden = YES;
 }
 
 %group LGSpotlightHooks
@@ -61,6 +78,10 @@ static void LGUpdateSpotlightGlass(UIView *view) {
 
 %end
 
+%end
+
+%group LGSpotlightFieldHooks
+
 %hook SPUITextField
 
 - (void)didMoveToWindow {
@@ -78,8 +99,9 @@ static void LGUpdateSpotlightGlass(UIView *view) {
 %end
 
 %ctor {
-    if ([[NSProcessInfo processInfo] isOperatingSystemAtLeastVersion:
-            (NSOperatingSystemVersion){16, 0, 0}]) {
+    BOOL modern = [[NSProcessInfo processInfo] isOperatingSystemAtLeastVersion:
+            (NSOperatingSystemVersion){16, 0, 0}];
+    if (modern || (LGSpotlightIsLegacy() && NSClassFromString(@"SPUIHeaderBlurView")))
         %init(LGSpotlightHooks);
-    }
+    if (modern) %init(LGSpotlightFieldHooks);
 }
