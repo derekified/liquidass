@@ -298,3 +298,43 @@ __attribute__((constructor)) static void lgGlassInitEnableObserver(void) {
 }
 
 %end
+
+%group LGLegacyMaterialRouting
+
+%hook SBWallpaperEffectView
+
+- (void)didMoveToWindow {
+    %orig;
+    lgRouteMaterialHost((UIView *)self);
+}
+
+- (void)layoutSubviews {
+    %orig;
+    lgRouteMaterialHost((UIView *)self);
+}
+
+- (void)setHidden:(BOOL)hidden {
+    if (LGMaterialHasGlass((UIView *)self, kGlassKey)) hidden = YES;
+    %orig(hidden);
+}
+
+- (void)setFrame:(CGRect)frame {
+    %orig(frame);
+    LGResyncGlassGeometry((UIView *)self, kGlassKey);
+}
+
+- (void)setBounds:(CGRect)bounds {
+    %orig(bounds);
+    LGResyncGlassGeometry((UIView *)self, kGlassKey);
+}
+
+%end
+
+%end
+
+%ctor {
+    %init;
+    Class wallpaperEffectView = NSClassFromString(@"SBWallpaperEffectView");
+    if (wallpaperEffectView && NSProcessInfo.processInfo.operatingSystemVersion.majorVersion < 13)
+        %init(LGLegacyMaterialRouting, SBWallpaperEffectView = wallpaperEffectView);
+}
