@@ -87,6 +87,12 @@ static BOOL LGRendererCompositing(void) {
     return sLGRendererState == LGRendererStateActive;
 }
 
+static BOOL LGRendererUnavailable(void) {
+    if (!sLGRendererStateLoaded) LGRefreshRendererState();
+    return sLGRendererState == LGRendererStateUnknown ||
+           sLGRendererState == LGRendererStateUnavailable;
+}
+
 static BOOL LGHostUsesFallbackMaterial(enum LGHostIdentifier host) {
     switch (host) {
         case LGHostIdentifierClock:
@@ -477,6 +483,8 @@ static const CGFloat kLGGlassEdgeWidth = 1.0;
     CAShapeLayer    *_edge;
     UIView          *_nativeBlurView;
     LGFallbackMaterialView *_fallbackMaterialView;
+    BOOL             _captureEnabled;
+    BOOL             _captureStateApplied;
     CGFloat          _nativeBlurRadius;
     BOOL             _backdropConfigured;
     BOOL             _filterAttached;
@@ -632,9 +640,9 @@ static const CGFloat kLGGlassEdgeWidth = 1.0;
         if (rgba[3] < 0.5) rgba[0] = rgba[1] = rgba[2] = dark ? 0.11 : 0.96;
         rgba[3] = 1.0;
     } else if (!clear) {
-        CGFloat floor = dark ? 0.28 : 0.30;
+        CGFloat floor = dark ? 0.45 : 0.55;
         CGFloat area = CGRectGetWidth(self.bounds) * CGRectGetHeight(self.bounds);
-        if (area > 40000.0) floor += 0.10;
+        if (area > 40000.0) floor += 0.12;
         rgba[3] = MAX(rgba[3], floor);
     }
     return [UIColor colorWithRed:rgba[0] green:rgba[1] blue:rgba[2] alpha:rgba[3]];
@@ -665,7 +673,7 @@ static const CGFloat kLGGlassEdgeWidth = 1.0;
     _fallbackMaterialView.layer.cornerRadius = hasShape ? _lgShapeCornerRadius : self.layer.cornerRadius;
     LGLayerCopyCornerStyle(_fallbackMaterialView.layer, self.layer);
     [CATransaction commit];
-    CGFloat radius = clear ? MAX(2.0, host->blur) : MAX(22.0, LGNativeBlurRadiusForFilterType(_lgFilterType));
+    CGFloat radius = clear ? MAX(2.0, host->blur) : MAX(30.0, LGNativeBlurRadiusForFilterType(_lgFilterType));
     [_fallbackMaterialView lgApplyBlurRadius:radius
                                   saturation:clear ? 1.2 : 1.8
                                         tint:[self lgFallbackTintForHost:host clear:clear]];
@@ -835,6 +843,18 @@ static const CGFloat kLGGlassEdgeWidth = 1.0;
         BOOL fallbackMaterial = [self updateFallbackMaterial];
         [self updateNativeBlurOverlayWithRadius:fallbackMaterial ? 0.0 :
             LGNativeBlurRadiusForFilterType(_lgFilterType ?: wantType)];
+
+        BOOL captureEnabled = !(fallbackMaterial && LGRendererUnavailable());
+        if (_captureEnabled != captureEnabled || !_captureStateApplied) {
+            LGLayerSetValueIfSupported(layer, @"enabled", @(captureEnabled));
+            _captureEnabled = captureEnabled;
+            _captureStateApplied = YES;
+        }
+        if (!captureEnabled) {
+            if (existing.count) layer.filters = nil;
+            _filterAttached = NO;
+            return;
+        }
 
         if (_filterAttached && existing.count == 1) {
             NSString *type = nil;
