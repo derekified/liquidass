@@ -79,6 +79,23 @@ jobs:
           brew install ldid make
           echo "$(brew --prefix make)/libexec/gnubin" >> $GITHUB_PATH
 
+      - name: install altlist
+        env:
+          ALTLIST_DEB: com.opa334.altlist_1.0.11_iphoneos-arm.deb
+          ALTLIST_SHA256: c2299f0ee65bfb25c4549ec3f24594b035a7cdab364dbfffbf632d67e723b75f
+        run: |
+          work="$RUNNER_TEMP/altlist"
+          mkdir -p "$work" && cd "$work"
+          curl -fsSLO "https://opa334.github.io/debs/$ALTLIST_DEB"
+          echo "$ALTLIST_SHA256  $ALTLIST_DEB" | shasum -a 256 -c -
+          ar x "$ALTLIST_DEB"
+          mkdir data && tar -xf data.tar.* -C data
+          for dest in "$THEOS/lib" "$THEOS/lib/iphone/rootless"; do
+            mkdir -p "$dest"
+            rm -rf "$dest/AltList.framework"
+            cp -R data/Library/Frameworks/AltList.framework "$dest/"
+          done
+
       - name: build (${{ matrix.scheme }})
         run: |
           SCHEME_FLAG=""
