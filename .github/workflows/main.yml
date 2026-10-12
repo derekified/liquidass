@@ -79,22 +79,39 @@ jobs:
           brew install ldid make
           echo "$(brew --prefix make)/libexec/gnubin" >> $GITHUB_PATH
 
+      # the rootful deb has an iOS 7 arm64 slice but an old-ABI arm64e slice that current ld rejects,
+      # so the rootful link stub takes arm64e from the rootless deb with the rootful install name
       - name: install altlist
         env:
-          ALTLIST_DEB: com.opa334.altlist_1.0.11_iphoneos-arm.deb
-          ALTLIST_SHA256: c2299f0ee65bfb25c4549ec3f24594b035a7cdab364dbfffbf632d67e723b75f
+          ALTLIST_VERSION: 1.0.11
+          ALTLIST_ROOTFUL_SHA256: c2299f0ee65bfb25c4549ec3f24594b035a7cdab364dbfffbf632d67e723b75f
+          ALTLIST_ROOTLESS_SHA256: 5835a6b0eacd5d99d272b3f74a744b28b1c4c16ada03aade36d0a636bca5e1f0
         run: |
+          set -euo pipefail
           work="$RUNNER_TEMP/altlist"
           mkdir -p "$work" && cd "$work"
-          curl -fsSLO "https://opa334.github.io/debs/$ALTLIST_DEB"
-          echo "$ALTLIST_SHA256  $ALTLIST_DEB" | shasum -a 256 -c -
-          ar x "$ALTLIST_DEB"
-          mkdir data && tar -xf data.tar.* -C data
-          for dest in "$THEOS/lib" "$THEOS/lib/iphone/rootless"; do
-            mkdir -p "$dest"
-            rm -rf "$dest/AltList.framework"
-            cp -R data/Library/Frameworks/AltList.framework "$dest/"
-          done
+          fetch() {
+            local deb="com.opa334.altlist_${ALTLIST_VERSION}_$1.deb"
+            curl -fsSLO "https://opa334.github.io/debs/$deb"
+            echo "$2  $deb" | shasum -a 256 -c -
+            mkdir -p "$1" && (cd "$1" && ar x "../$deb" && mkdir data && tar -xf data.tar.* -C data)
+          }
+          fetch iphoneos-arm "$ALTLIST_ROOTFUL_SHA256"
+          fetch iphoneos-arm64 "$ALTLIST_ROOTLESS_SHA256"
+          rootful=iphoneos-arm/data/Library/Frameworks/AltList.framework
+          rootless=iphoneos-arm64/data/var/jb/Library/Frameworks/AltList.framework
+
+          lipo "$rootful/AltList" -thin arm64 -output arm64.dylib
+          lipo "$rootless/AltList" -thin arm64e -output arm64e.dylib
+          install_name_tool -id /Library/Frameworks/AltList.framework/AltList arm64e.dylib
+          mkdir -p "$THEOS/lib"
+          rm -rf "$THEOS/lib/AltList.framework"
+          cp -R "$rootful" "$THEOS/lib/"
+          lipo -create arm64.dylib arm64e.dylib -output "$THEOS/lib/AltList.framework/AltList"
+
+          mkdir -p "$THEOS/lib/iphone/rootless"
+          rm -rf "$THEOS/lib/iphone/rootless/AltList.framework"
+          cp -R "$rootless" "$THEOS/lib/iphone/rootless/"
 
       - name: build (${{ matrix.scheme }})
         run: |
