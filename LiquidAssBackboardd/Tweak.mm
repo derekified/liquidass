@@ -2142,6 +2142,8 @@ static void tweakInit(void) {
         g_contextDestSurfaceOffset = 0x110;
     else if (osv.majorVersion == 15 || osv.majorVersion >= 18)
         g_contextDestSurfaceOffset = 0x108;
+    else if (osv.majorVersion <= 12)
+        g_contextDestSurfaceOffset = 0xf0;
     else
         g_contextDestSurfaceOffset = 0xf8;
     lglog("init: QuartzCore layout filterAtom=%#lx sourceTexture=%#lx destinationTexture=%#lx contextDestination=%#lx",

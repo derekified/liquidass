@@ -1,6 +1,7 @@
 #import "LGLiveBackdropView.h"
 #import "LGHostRegistry.h"
 #import "LGCoverSheetState.h"
+#import "LGCompat.h"
 #import <CoreMotion/CoreMotion.h>
 #import <QuartzCore/QuartzCore.h>
 #import <objc/message.h>
@@ -469,7 +470,7 @@ static const CGFloat kLGGlassEdgeWidth = 1.0;
     [CATransaction setDisableActions:YES];
     _nativeBlurView.frame = self.bounds;
     _nativeBlurView.layer.cornerRadius = self.layer.cornerRadius;
-    _nativeBlurView.layer.cornerCurve = self.layer.cornerCurve;
+    LGLayerCopyCornerStyle(_nativeBlurView.layer, self.layer);
     _nativeBlurView.clipsToBounds = YES;
     if (fabs(_nativeBlurRadius - radius) > 0.001) {
         @try { [_nativeBlurView setValue:@(radius) forKey:@"lgBlurRadius"]; }
@@ -562,20 +563,18 @@ static const CGFloat kLGGlassEdgeWidth = 1.0;
     [CATransaction setDisableActions:YES];
     _specularLayer.hidden = !enabled;
     _specularLayer.frame = shapeRect;
-    UIColor *edgeColor = [UIColor.separatorColor colorWithAlphaComponent:0.16];
-    if (@available(iOS 13.0, *))
-        edgeColor = [edgeColor resolvedColorWithTraitCollection:self.traitCollection];
+    UIColor *edgeColor = LGResolvedColor([LGSeparatorColor() colorWithAlphaComponent:0.16], self.traitCollection);
     _edge.hidden = NO;
     _edge.frame = shapeRect;
     _edge.cornerRadius = shapeRadius;
-    _edge.cornerCurve = self.layer.cornerCurve;
+    LGLayerCopyCornerStyle(_edge, self.layer);
     _edge.borderWidth = kLGGlassEdgeWidth;
     _edge.borderColor = edgeColor.CGColor;
 
     _specularMask.frame = CGRectMake(0.0, 0.0, CGRectGetWidth(shapeRect),
                                      CGRectGetHeight(shapeRect));
     _specularMask.cornerRadius = shapeRadius;
-    _specularMask.cornerCurve = self.layer.cornerCurve;
+    LGLayerCopyCornerStyle(_specularMask, self.layer);
     _specularMask.borderWidth = 1.0;
     [CATransaction commit];
     [self applySpecularAngle:sLGSpecularAngle];
@@ -598,12 +597,14 @@ static const CGFloat kLGGlassEdgeWidth = 1.0;
 
         if (!_backdropConfigured) {
             // these private flags keep capture in render server space
-            [layer setValue:@NO  forKey:@"layerUsesCoreImageFilters"];
-            [layer setValue:@NO forKey:@"windowServerAware"];
+            LGLayerSetValueIfSupported(layer, @"layerUsesCoreImageFilters", @NO);
+            LGLayerSetValueIfSupported(layer, @"windowServerAware", @NO);
             [layer setValue:_lgGroupName forKey:@"groupName"];
-            [layer setValue:@"dylv.liquidglass" forKey:@"groupNamespace"];
+            if (!LGLayerSetValueIfSupported(layer, @"groupNamespace", @"dylv.liquidglass")) {
+                LGLayerSetValueIfSupported(layer, @"usesGlobalGroupNamespace", @NO);
+            }
 
-            [layer setValue:@YES forKey:@"ignoresScreenClip"];
+            LGLayerSetValueIfSupported(layer, @"ignoresScreenClip", @YES);
             _backdropConfigured = YES;
         }
 
@@ -736,7 +737,7 @@ void LGInjectGlassIntoMaterialGroupType(UIView *mat, const void *assocKey,
         [glass updateSpecular];
         [glass applyFilters];
     }
-    glass.layer.cornerCurve   = kCACornerCurveContinuous;
+    LGLayerSetContinuousCorners(glass.layer);
     glass.layer.masksToBounds = YES;
 
     objc_setAssociatedObject(glass, kLGOutsetKey, [NSValue valueWithUIEdgeInsets:outset],

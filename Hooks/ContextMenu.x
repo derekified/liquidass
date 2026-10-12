@@ -1,4 +1,5 @@
 #import <UIKit/UIKit.h>
+#import "../Shared/LGCompat.h"
 #import <QuartzCore/QuartzCore.h>
 #import "../Shared/LGLiveBackdropView.h"
 #import "../Shared/LGGlassKit.h"
@@ -41,7 +42,7 @@ static void ctxRememberVisualState(UIView *view) {
         objc_setAssociatedObject(view, kCtxOriginalAlphaKey, @(view.alpha), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         objc_setAssociatedObject(view, kCtxOriginalHiddenKey, @(view.hidden), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         objc_setAssociatedObject(view, kCtxOriginalRadiusKey, @(view.layer.cornerRadius), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-        objc_setAssociatedObject(view, kCtxOriginalCurveKey, view.layer.cornerCurve ?: @"", OBJC_ASSOCIATION_COPY_NONATOMIC);
+        objc_setAssociatedObject(view, kCtxOriginalCurveKey, @(LGLayerGetCornerStyle(view.layer)), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         objc_setAssociatedObject(view, kCtxOriginalMasksKey, @(view.layer.masksToBounds), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     }
 }
@@ -96,7 +97,7 @@ static void applyContextMenuRoundedStyle(UIView *view) {
         if (pill > 0.0) r = pill;
     }
     if (fabs(view.layer.cornerRadius - r) > 0.5) view.layer.cornerRadius = r;
-    view.layer.cornerCurve = kCACornerCurveContinuous;
+    LGLayerSetContinuousCorners(view.layer);
 }
 
 static BOOL shouldHideContextMenuSeparatorView(UIView *view) {
@@ -233,7 +234,7 @@ static void injectGlassIntoContextEffectView(UIVisualEffectView *fx, int attempt
     if (glass.superview != container) [container insertSubview:glass atIndex:0];
     glass.frame                = contextMenuVisualBounds(container);
     glass.layer.cornerRadius   = contextMenuCornerRadius();
-    glass.layer.cornerCurve    = kCACornerCurveContinuous;
+    LGLayerSetContinuousCorners(glass.layer);
     glass.layer.masksToBounds  = YES;
     [glass applyFilters];
     if (LGDebugLoggingEnabled() && ![objc_getAssociatedObject(fx, kCtxGlassProbeKey) boolValue]) {
@@ -303,7 +304,7 @@ static void relayoutContextMenuCellContent(UIView *contentView) {
     if ((self = [super initWithFrame:frame])) {
         self.userInteractionEnabled = NO;
         self.clipsToBounds = YES;
-        self.layer.cornerCurve = kCACornerCurveContinuous;
+        LGLayerSetContinuousCorners(self.layer);
         self.layer.cornerRadius = contextMenuCornerRadius();
         _glowLayer = [CAGradientLayer layer];
         _glowLayer.type = kCAGradientLayerRadial;
@@ -369,7 +370,7 @@ static void relayoutContextMenuCellContent(UIView *contentView) {
     if ((self = [super initWithFrame:frame])) {
         self.userInteractionEnabled = NO;
         self.layer.masksToBounds = YES;
-        self.layer.cornerCurve = kCACornerCurveContinuous;
+        LGLayerSetContinuousCorners(self.layer);
         self.alpha = 0.0;
         self.hidden = YES;
     }
@@ -439,8 +440,8 @@ static void restoreContextMenuSubtree(UIView *view) {
         view.alpha = alpha.doubleValue;
         view.hidden = [objc_getAssociatedObject(view, kCtxOriginalHiddenKey) boolValue];
         view.layer.cornerRadius = [objc_getAssociatedObject(view, kCtxOriginalRadiusKey) doubleValue];
-        NSString *curve = objc_getAssociatedObject(view, kCtxOriginalCurveKey);
-        view.layer.cornerCurve = curve.length ? curve : kCACornerCurveCircular;
+        NSNumber *curve = objc_getAssociatedObject(view, kCtxOriginalCurveKey);
+        LGLayerSetCornerStyle(view.layer, curve ? (LGCornerStyle)curve.integerValue : LGCornerStyleCircular);
         view.layer.masksToBounds = [objc_getAssociatedObject(view, kCtxOriginalMasksKey) boolValue];
         objc_setAssociatedObject(view, kCtxOriginalAlphaKey, nil, OBJC_ASSOCIATION_ASSIGN);
         objc_setAssociatedObject(view, kCtxOriginalHiddenKey, nil, OBJC_ASSOCIATION_ASSIGN);
@@ -715,8 +716,103 @@ static void ctxScheduleLayoutProbe(UIView *listView) {
 
 %end
 
+@interface SBUIIconForceTouchWrapperViewController : UIViewController
+@property (readonly, nonatomic) UIViewController *childViewController;
+@end
+
+static void *kCtxLegacyGlassKey = &kCtxLegacyGlassKey;
+static const CGFloat kCtxLegacyPlatterRadius = 13.0;
+
+static BOOL ctxLegacyContainsContent(UIView *view) {
+    for (UIView *sub in view.subviews) {
+        if ([sub isKindOfClass:[UILabel class]] || [NSStringFromClass(sub.class) hasPrefix:@"SBUIAction"])
+            return YES;
+        if (ctxLegacyContainsContent(sub)) return YES;
+    }
+    return NO;
+}
+
+static BOOL ctxLegacyIsPlatterBackground(UIView *view, UIView *platter) {
+    if ([view isKindOfClass:[LGLiveBackdropView class]]) return NO;
+    if (ctxLegacyContainsContent(view)) return NO;
+    NSString *name = NSStringFromClass(view.class);
+    BOOL material = [view isKindOfClass:[UIVisualEffectView class]] ||
+                    [name containsString:@"Backdrop"] ||
+                    [name containsString:@"MaterialView"];
+    if (!material) return NO;
+    CGRect frame = [view convertRect:view.bounds toView:platter];
+    CGFloat area = CGRectGetWidth(platter.bounds) * CGRectGetHeight(platter.bounds);
+    CGRect overlap = CGRectIntersection(frame, platter.bounds);
+    return area > 0.0 && CGRectGetWidth(overlap) * CGRectGetHeight(overlap) >= area * 0.85;
+}
+
+static void ctxLegacyCollectBackgrounds(UIView *view, UIView *platter, NSInteger depth,
+                                        NSMutableArray<UIView *> *out) {
+    if (depth > 3) return;
+    for (UIView *sub in view.subviews) {
+        if (ctxLegacyIsPlatterBackground(sub, platter)) {
+            [out addObject:sub];
+            continue;
+        }
+        ctxLegacyCollectBackgrounds(sub, platter, depth + 1, out);
+    }
+}
+
+static void ctxLegacyUpdateShortcutPlatter(SBUIIconForceTouchWrapperViewController *wrapper) {
+    NSString *childName = NSStringFromClass(wrapper.childViewController.class);
+    if (![childName containsString:@"Shortcut"] && ![childName containsString:@"ActionPlatter"]) return;
+    UIView *platter = wrapper.isViewLoaded ? wrapper.view : nil;
+    if (!platter.window || CGRectIsEmpty(platter.bounds)) return;
+
+    LGLiveBackdropView *glass = objc_getAssociatedObject(platter, kCtxLegacyGlassKey);
+    if (!lgHostEnabled(@"ContextMenu")) {
+        glass.hidden = YES;
+        return;
+    }
+
+    NSMutableArray<UIView *> *backgrounds = [NSMutableArray array];
+    ctxLegacyCollectBackgrounds(platter, platter, 0, backgrounds);
+    CGFloat radius = kCtxLegacyPlatterRadius;
+    for (UIView *background in backgrounds) {
+        if (background.layer.cornerRadius > radius) radius = background.layer.cornerRadius;
+        lgSuppressStock(background, @"ContextMenu", YES);
+    }
+    if (platter.layer.cornerRadius > radius) radius = platter.layer.cornerRadius;
+
+    if (!glass) {
+        glass = LGCreateRegisteredGlass(platter.bounds, nil, @"ContextMenu");
+        if (!glass) return;
+        glass.userInteractionEnabled = NO;
+        objc_setAssociatedObject(platter, kCtxLegacyGlassKey, glass, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        lgTrackGlass(glass, @"ContextMenu", platter);
+    }
+    if (glass.superview != platter) [platter insertSubview:glass atIndex:0];
+    else [platter sendSubviewToBack:glass];
+    glass.hidden = NO;
+    glass.frame = platter.bounds;
+    glass.layer.cornerRadius = radius;
+    LGLayerSetContinuousCorners(glass.layer);
+    glass.layer.masksToBounds = YES;
+    [glass applyFilters];
+}
+
+%group LGLegacyShortcutMenuHooks
+
+%hook SBUIIconForceTouchWrapperViewController
+- (void)viewDidLayoutSubviews {
+    %orig;
+    ctxLegacyUpdateShortcutPlatter(self);
+}
+%end
+
+%end
+
 %ctor {
     if (LGIsExcludedSystemProcess()) return;
     %init(LGContextMenuHooks);
+    if (LGIsSpringBoardProcess() && !NSClassFromString(@"_UIContextMenuView") &&
+        NSClassFromString(@"SBUIIconForceTouchWrapperViewController")) {
+        %init(LGLegacyShortcutMenuHooks);
+    }
     lgObservePreferenceReload(^{ restoreContextMenusForDisable(); });
 }

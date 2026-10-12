@@ -1,3 +1,9 @@
+ifeq ($(THEOS_CURRENT_ARCH),arm64e)
+TARGET := iphone:clang:latest:14.0
+else
+TARGET := iphone:clang:latest:12.0
+endif
+
 include $(THEOS)/makefiles/common.mk
 
 BUNDLE_NAME = LiquidAssPrefs
@@ -5,11 +11,11 @@ BUNDLE_NAME = LiquidAssPrefs
 LG_PACKAGE_VERSION := $(shell sed -n 's/^Version: //p' ../control | head -n 1)
 
 PREF_LOCAL_FILES := $(wildcard *.m)
-PREF_SHARED_FILES := ../Shared/LGSharedSupport.m ../Shared/LGLiveBackdropView.m ../Shared/LGFramework.m
+PREF_SHARED_FILES := ../Shared/LGSharedSupport.m ../Shared/LGLiveBackdropView.m ../Shared/LGFramework.m ../Shared/LGCompat.m
 LiquidAssPrefs_FILES = $(PREF_LOCAL_FILES) $(PREF_SHARED_FILES)
 LiquidAssPrefs_FRAMEWORKS = UIKit QuartzCore CoreText CoreGraphics CoreMotion
 LiquidAssPrefs_INSTALL_PATH = /Library/PreferenceBundles
-LiquidAssPrefs_CFLAGS = -fobjc-arc -I../Shared -DLG_PACKAGE_VERSION=@\"$(LG_PACKAGE_VERSION)\"
+LiquidAssPrefs_CFLAGS = -fobjc-arc -I../Shared -DLG_PACKAGE_VERSION=@\"$(LG_PACKAGE_VERSION)\" $(LG_AVAILABILITY_CFLAGS)
 ifeq ($(THEOS_TARGET_NAME),iphone_simulator)
 LiquidAssPrefs_LDFLAGS += -undefined dynamic_lookup
 else

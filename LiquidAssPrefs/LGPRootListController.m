@@ -1,4 +1,5 @@
 #import "LGPRootListController.h"
+#import "../Shared/LGCompat.h"
 #import "LGPSurfaceController.h"
 #import "LGPrefsSurfaceCatalog.h"
 #import "LGPrefsDataSupport.h"
@@ -59,7 +60,7 @@
 - (void)viewDidLoad {
     [super viewDidLoad];
     self.title = LGPrefsAppName();
-    self.view.backgroundColor = [UIColor systemGroupedBackgroundColor];
+    self.view.backgroundColor = LGSystemGroupedBackgroundColor();
     if ([self respondsToSelector:@selector(table)] && self.table) self.table.hidden = YES;
     self.navigationItem.rightBarButtonItem = LGMakeCircularMenuItem(self, @selector(handleApplyPressed),
                                                                       @selector(handleResetPressed),
@@ -81,6 +82,11 @@
 - (void)viewWillAppear:(BOOL)animated {
     [super viewWillAppear:animated];
     [self applyNavigationBarStyle];
+}
+
+- (void)viewWillDisappear:(BOOL)animated {
+    [super viewWillDisappear:animated];
+    LGRestoreNavigationBarAppearanceIfLeaving(self);
 }
 
 - (void)viewDidAppear:(BOOL)animated {
@@ -240,7 +246,7 @@
     UIView *card = [[UIView alloc] initWithFrame:CGRectZero];
     card.backgroundColor = LGSubpageCardBackgroundColor();
     card.layer.cornerRadius = 23.25;
-    card.layer.cornerCurve = kCACornerCurveContinuous;
+    LGLayerSetContinuousCorners(card.layer);
 
     UIStackView *stack = [[UIStackView alloc] initWithFrame:CGRectZero];
     stack.axis = UILayoutConstraintAxisVertical;
@@ -255,19 +261,19 @@
     UILabel *subtitleLabel = [[UILabel alloc] initWithFrame:CGRectZero];
     subtitleLabel.text = LGLocalized(@"prefs.subtitle.global_enabled");
     subtitleLabel.numberOfLines = 0;
-    subtitleLabel.textColor = [UIColor secondaryLabelColor];
+    subtitleLabel.textColor = LGSecondaryLabelColor();
     subtitleLabel.font = [UIFont systemFontOfSize:13.0 weight:UIFontWeightRegular];
 
     UISwitch *toggle = [[LGPrefsSwitchClass() alloc] initWithFrame:CGRectZero];
     toggle.onTintColor = [UIColor systemBlueColor];
     toggle.on = [self isGlobalEnabled];
     self.lg_globalToggle = toggle;
-    [toggle addAction:[UIAction actionWithHandler:^(__kindof UIAction * _Nonnull action) {
-        UISwitch *sender = (UISwitch *)action.sender;
+    LGControlAddHandler(toggle, UIControlEventValueChanged, ^(__kindof UIControl *lgSender) {
+        UISwitch *sender = (UISwitch *)lgSender;
         LGWritePreferenceAndMaybeRequireRespring(@"Global.Enabled", @(sender.isOn));
         [self updateMenuAvailability];
         [self updateRespringBarAnimated:YES];
-    }] forControlEvents:UIControlEventValueChanged];
+    });
 
     UIView *headerRow = [[UIView alloc] initWithFrame:CGRectZero];
     headerRow.translatesAutoresizingMaskIntoConstraints = NO;
@@ -297,7 +303,7 @@
 }
 
 - (void)applyNavigationBarStyle {
-    LGApplyNavigationBarAppearance(self.navigationItem);
+    LGApplyNavigationBarAppearance(self);
 }
 
 - (UIView *)heroCard {
@@ -307,7 +313,7 @@
     UILabel *eyebrow = [[UILabel alloc] initWithFrame:CGRectZero];
     eyebrow.text = LGLocalized(@"prefs.hero.eyebrow");
     eyebrow.font = [UIFont systemFontOfSize:13.0 weight:UIFontWeightSemibold];
-    eyebrow.textColor = [UIColor secondaryLabelColor];
+    eyebrow.textColor = LGSecondaryLabelColor();
     eyebrow.translatesAutoresizingMaskIntoConstraints = NO;
 
     UILabel *titleLabel = [[UILabel alloc] initWithFrame:CGRectZero];
@@ -318,7 +324,7 @@
     UILabel *subtitleLabel = [[UILabel alloc] initWithFrame:CGRectZero];
     subtitleLabel.text = LGLocalized(@"prefs.hero.subtitle");
     subtitleLabel.numberOfLines = 0;
-    subtitleLabel.textColor = [UIColor secondaryLabelColor];
+    subtitleLabel.textColor = LGSecondaryLabelColor();
     subtitleLabel.font = [UIFont systemFontOfSize:15.0 weight:UIFontWeightMedium];
     subtitleLabel.translatesAutoresizingMaskIntoConstraints = NO;
 
@@ -358,7 +364,7 @@
         UILabel *subtitleLabel = [[UILabel alloc] initWithFrame:CGRectZero];
         subtitleLabel.text = subtitle;
         subtitleLabel.numberOfLines = 0;
-        subtitleLabel.textColor = [UIColor secondaryLabelColor];
+        subtitleLabel.textColor = LGSecondaryLabelColor();
         subtitleLabel.font = [UIFont systemFontOfSize:13.0 weight:UIFontWeightMedium];
         [sectionStack addArrangedSubview:subtitleLabel];
     }
@@ -376,7 +382,7 @@
     UIView *card = [[UIView alloc] initWithFrame:CGRectZero];
     card.backgroundColor = LGSubpageCardBackgroundColor();
     card.layer.cornerRadius = 23.25;
-    card.layer.cornerCurve = kCACornerCurveContinuous;
+    LGLayerSetContinuousCorners(card.layer);
     card.layer.masksToBounds = YES;
 
     UIStackView *stack = [[UIStackView alloc] initWithFrame:CGRectZero];
@@ -428,7 +434,7 @@
     UIButton *button = [UIButton buttonWithType:UIButtonTypeSystem];
     button.backgroundColor = LGSubpageCardBackgroundColor();
     button.layer.cornerRadius = 23.25;
-    button.layer.cornerCurve = kCACornerCurveContinuous;
+    LGLayerSetContinuousCorners(button.layer);
     button.contentHorizontalAlignment = UIControlContentHorizontalAlignmentLeft;
     if (action) {
         [button addTarget:self action:action forControlEvents:UIControlEventTouchUpInside];
@@ -438,7 +444,7 @@
     chip.translatesAutoresizingMaskIntoConstraints = NO;
     chip.backgroundColor = [color colorWithAlphaComponent:0.14];
     chip.layer.cornerRadius = 18.0;
-    chip.layer.cornerCurve = kCACornerCurveContinuous;
+    LGLayerSetContinuousCorners(chip.layer);
 
     UIView *glyph = image ? [[UIImageView alloc] initWithImage:image]
                           : LGMakeNavCardGlyphView(symbolName, color);
@@ -462,13 +468,13 @@
     UILabel *subtitleLabel = [[UILabel alloc] initWithFrame:CGRectZero];
     subtitleLabel.text = subtitle;
     subtitleLabel.numberOfLines = 0;
-    subtitleLabel.textColor = [UIColor secondaryLabelColor];
+    subtitleLabel.textColor = LGSecondaryLabelColor();
     subtitleLabel.font = [UIFont systemFontOfSize:13.0 weight:UIFontWeightRegular];
     subtitleLabel.translatesAutoresizingMaskIntoConstraints = NO;
 
-    UIImageView *chevron = [[UIImageView alloc] initWithImage:[UIImage systemImageNamed:@"chevron.right"]];
+    UIImageView *chevron = [[UIImageView alloc] initWithImage:LGSymbolImage(@"chevron.right", 17.0, UIFontWeightRegular)];
     chevron.translatesAutoresizingMaskIntoConstraints = NO;
-    chevron.tintColor = [UIColor tertiaryLabelColor];
+    chevron.tintColor = LGTertiaryLabelColor();
     chevron.contentMode = UIViewContentModeScaleAspectFit;
     [chevron setContentHuggingPriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
     [chevron setContentCompressionResistancePriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];

@@ -1,4 +1,5 @@
 #import "LGPrefsUIHelpers.h"
+#import "../Shared/LGCompat.h"
 #import "LGPrefsDataSupport.h"
 #import "../Shared/LGLiveBackdropView.h"
 #import "../Shared/LGSharedSupport.h"
@@ -83,7 +84,7 @@ static void LGPerformSoftHaptic(void) {
 
 @interface LGLiveGlassBarButton : UIView
 - (instancetype)initWithTarget:(id)target action:(SEL)action symbolName:(NSString *)symbolName;
-- (void)setPrimaryMenu:(UIMenu *)menu;
+- (void)setMenuItems:(NSArray<LGMenuItem *> *)items;
 - (void)refreshGlass;
 @end
 
@@ -105,18 +106,15 @@ static void LGPerformSoftHaptic(void) {
     _glass = [[LGLiveBackdropView alloc] initWithFrame:self.bounds groupName:nil
                                              filterType:LGFilterTypeForHostPrefix(@"PrefsButton")];
     _glass.layer.cornerRadius = 22.0;
-    _glass.layer.cornerCurve = kCACornerCurveContinuous;
+    LGLayerSetContinuousCorners(_glass.layer);
     _glass.layer.masksToBounds = YES;
     [self addSubview:_glass];
 
     _tint = [[UIView alloc] initWithFrame:self.bounds];
     _tint.userInteractionEnabled = NO;
     _tint.layer.cornerRadius = 22.0;
-    _tint.layer.cornerCurve = kCACornerCurveContinuous;
-    _tint.backgroundColor = [UIColor colorWithDynamicProvider:^UIColor *(UITraitCollection *trait) {
-        return trait.userInterfaceStyle == UIUserInterfaceStyleDark
-            ? [UIColor colorWithWhite:1.0 alpha:0.06] : [UIColor colorWithWhite:1.0 alpha:0.12];
-    }];
+    LGLayerSetContinuousCorners(_tint.layer);
+    _tint.backgroundColor = LGDynamicColor([UIColor colorWithWhite:1.0 alpha:0.12], [UIColor colorWithWhite:1.0 alpha:0.06]);
     [self addSubview:_tint];
 
     _button = [UIButton buttonWithType:UIButtonTypeCustom];
@@ -126,9 +124,8 @@ static void LGPerformSoftHaptic(void) {
     [_button addTarget:self action:@selector(clearPressed:) forControlEvents:UIControlEventTouchUpInside | UIControlEventTouchUpOutside | UIControlEventTouchCancel];
     [self addSubview:_button];
 
-    UIImageSymbolConfiguration *configuration = [UIImageSymbolConfiguration configurationWithPointSize:22.0 weight:UIImageSymbolWeightSemibold];
-    _glyph = [[UIImageView alloc] initWithImage:[UIImage systemImageNamed:symbolName withConfiguration:configuration]];
-    _glyph.tintColor = UIColor.labelColor;
+    _glyph = [[UIImageView alloc] initWithImage:LGSymbolImage(symbolName, 22.0, UIFontWeightSemibold)];
+    _glyph.tintColor = LGLabelColor();
     _glyph.contentMode = UIViewContentModeCenter;
     _glyph.userInteractionEnabled = NO;
     [self addSubview:_glyph];
@@ -136,9 +133,8 @@ static void LGPerformSoftHaptic(void) {
 }
 
 - (CGSize)intrinsicContentSize { return CGSizeMake(44.0, 44.0); }
-- (void)setPrimaryMenu:(UIMenu *)menu {
-    _button.menu = menu;
-    _button.showsMenuAsPrimaryAction = YES;
+- (void)setMenuItems:(NSArray<LGMenuItem *> *)items {
+    LGButtonSetMenuItems(_button, items);
 }
 - (void)layoutSubviews {
     [super layoutSubviews];
@@ -191,22 +187,56 @@ static void LGPerformSoftHaptic(void) {
 - (void)refreshGlass { [_glass applyFilters]; }
 @end
 
-static UINavigationBarAppearance *LGMakePrefsTransparentNavigationAppearance(void) {
-    UINavigationBarAppearance *appearance = [[UINavigationBarAppearance alloc] init];
-    [appearance configureWithTransparentBackground];
-    appearance.backgroundColor = UIColor.clearColor;
-    appearance.shadowColor = UIColor.clearColor;
-    return appearance;
+static const void *kLGSavedNavigationBarStateKey = &kLGSavedNavigationBarStateKey;
+
+void LGApplyNavigationBarAppearance(UIViewController *controller) {
+    if (@available(iOS 13.0, *)) {
+        UINavigationBarAppearance *appearance = [[UINavigationBarAppearance alloc] init];
+        [appearance configureWithTransparentBackground];
+        appearance.backgroundColor = UIColor.clearColor;
+        appearance.shadowColor = UIColor.clearColor;
+        UINavigationItem *navigationItem = controller.navigationItem;
+        navigationItem.standardAppearance = appearance;
+        navigationItem.scrollEdgeAppearance = appearance;
+        navigationItem.compactAppearance = appearance;
+        if (@available(iOS 15.0, *)) {
+            navigationItem.compactScrollEdgeAppearance = appearance;
+        }
+        return;
+    }
+    UINavigationBar *bar = controller.navigationController.navigationBar;
+    if (!bar) return;
+    if (!objc_getAssociatedObject(bar, kLGSavedNavigationBarStateKey)) {
+        NSMutableDictionary *state = [NSMutableDictionary dictionary];
+        UIImage *background = [bar backgroundImageForBarMetrics:UIBarMetricsDefault];
+        if (background) state[@"background"] = background;
+        if (bar.shadowImage) state[@"shadow"] = bar.shadowImage;
+        if (bar.backgroundColor) state[@"color"] = bar.backgroundColor;
+        if (bar.barTintColor) state[@"barTint"] = bar.barTintColor;
+        state[@"translucent"] = @(bar.translucent);
+        objc_setAssociatedObject(bar, kLGSavedNavigationBarStateKey, state, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+    [bar setBackgroundImage:[UIImage new] forBarMetrics:UIBarMetricsDefault];
+    bar.shadowImage = [UIImage new];
+    bar.backgroundColor = UIColor.clearColor;
+    bar.translucent = YES;
 }
 
-void LGApplyNavigationBarAppearance(UINavigationItem *navigationItem) {
-    UINavigationBarAppearance *appearance = LGMakePrefsTransparentNavigationAppearance();
-    navigationItem.standardAppearance = appearance;
-    navigationItem.scrollEdgeAppearance = appearance;
-    navigationItem.compactAppearance = appearance;
-    if (@available(iOS 15.0, *)) {
-        navigationItem.compactScrollEdgeAppearance = appearance;
-    }
+void LGRestoreNavigationBarAppearanceIfLeaving(UIViewController *controller) {
+    if (LGSystemVersionAtLeast(13)) return;
+    UINavigationController *navigationController = controller.navigationController;
+    UINavigationBar *bar = navigationController.navigationBar;
+    NSDictionary *state = bar ? objc_getAssociatedObject(bar, kLGSavedNavigationBarStateKey) : nil;
+    if (!state) return;
+    UIViewController *incoming = navigationController.topViewController;
+    if (incoming && incoming != controller &&
+        [incoming respondsToSelector:NSSelectorFromString(@"applyNavigationBarStyle")]) return;
+    [bar setBackgroundImage:state[@"background"] forBarMetrics:UIBarMetricsDefault];
+    bar.shadowImage = state[@"shadow"];
+    bar.backgroundColor = state[@"color"];
+    bar.barTintColor = state[@"barTint"];
+    bar.translucent = [state[@"translucent"] boolValue];
+    objc_setAssociatedObject(bar, kLGSavedNavigationBarStateKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
 
 void LGInstallScrollableStack(UIViewController *controller,
@@ -251,12 +281,7 @@ void LGRefreshRespringBarGlass(UIView *respringBar) {
     if (!respringBar) return;
     UIView *glassView = objc_getAssociatedObject(respringBar, kLGRespringBarGlassViewKey);
     UIView *tintView = objc_getAssociatedObject(respringBar, kLGRespringBarTintViewKey);
-    tintView.backgroundColor = [UIColor colorWithDynamicProvider:^UIColor * _Nonnull(UITraitCollection * _Nonnull trait) {
-        if (trait.userInterfaceStyle == UIUserInterfaceStyleDark) {
-            return [[UIColor whiteColor] colorWithAlphaComponent:0.04];
-        }
-        return [[UIColor blackColor] colorWithAlphaComponent:0.01];
-    }];
+    tintView.backgroundColor = LGDynamicColor([[UIColor blackColor] colorWithAlphaComponent:0.01], [[UIColor whiteColor] colorWithAlphaComponent:0.04]);
     glassView.hidden = NO;
     if ([glassView isKindOfClass:[LGLiveBackdropView class]]) {
         [(LGLiveBackdropView *)glassView applyFilters];
@@ -348,22 +373,18 @@ UIView *LGMakeNavCardGlyphView(NSString *symbolName, UIColor *tintColor) {
     ]];
 
     if ([symbolName isEqualToString:@"lg.lockscreen.stacked"]) {
-        UIImageSymbolConfiguration *phoneConfig =
-            [UIImageSymbolConfiguration configurationWithPointSize:17.0 weight:UIImageSymbolWeightSemibold];
-        UIImageView *phoneGlyph = [[UIImageView alloc] initWithImage:[UIImage systemImageNamed:@"iphone" withConfiguration:phoneConfig]];
+        UIImageView *phoneGlyph = [[UIImageView alloc] initWithImage:LGSymbolImage(@"iphone", 17.0, UIFontWeightSemibold)];
         phoneGlyph.translatesAutoresizingMaskIntoConstraints = NO;
         phoneGlyph.tintColor = tintColor;
         phoneGlyph.contentMode = UIViewContentModeScaleAspectFit;
 
         UIView *lockBadge = [[UIView alloc] initWithFrame:CGRectZero];
         lockBadge.translatesAutoresizingMaskIntoConstraints = NO;
-        lockBadge.backgroundColor = [UIColor secondarySystemGroupedBackgroundColor];
+        lockBadge.backgroundColor = LGSecondarySystemGroupedBackgroundColor();
         lockBadge.layer.cornerRadius = 7.0;
-        lockBadge.layer.cornerCurve = kCACornerCurveContinuous;
+        LGLayerSetContinuousCorners(lockBadge.layer);
 
-        UIImageSymbolConfiguration *lockConfig =
-            [UIImageSymbolConfiguration configurationWithPointSize:8.0 weight:UIImageSymbolWeightBold];
-        UIImageView *lockGlyph = [[UIImageView alloc] initWithImage:[UIImage systemImageNamed:@"lock.fill" withConfiguration:lockConfig]];
+        UIImageView *lockGlyph = [[UIImageView alloc] initWithImage:LGSymbolImage(@"lock.fill", 8.0, UIFontWeightBold)];
         lockGlyph.translatesAutoresizingMaskIntoConstraints = NO;
         lockGlyph.tintColor = tintColor;
         lockGlyph.contentMode = UIViewContentModeScaleAspectFit;
@@ -386,9 +407,7 @@ UIView *LGMakeNavCardGlyphView(NSString *symbolName, UIColor *tintColor) {
         return container;
     }
 
-    UIImageSymbolConfiguration *symbolConfig =
-        [UIImageSymbolConfiguration configurationWithPointSize:16.0 weight:UIImageSymbolWeightSemibold];
-    UIImageView *glyph = [[UIImageView alloc] initWithImage:[UIImage systemImageNamed:symbolName withConfiguration:symbolConfig]];
+    UIImageView *glyph = [[UIImageView alloc] initWithImage:LGSymbolImage(symbolName, 16.0, UIFontWeightSemibold)];
     glyph.translatesAutoresizingMaskIntoConstraints = NO;
     glyph.tintColor = tintColor;
     glyph.contentMode = UIViewContentModeScaleAspectFit;
@@ -401,23 +420,13 @@ UIView *LGMakeNavCardGlyphView(NSString *symbolName, UIColor *tintColor) {
 }
 
 UIColor *LGSubpageCardBackgroundColor(void) {
-    return [UIColor colorWithDynamicProvider:^UIColor * _Nonnull(UITraitCollection * _Nonnull trait) {
-        if (trait.userInterfaceStyle == UIUserInterfaceStyleDark) {
-            return [[UIColor whiteColor] colorWithAlphaComponent:0.07];
-        }
-        return [[UIColor whiteColor] colorWithAlphaComponent:0.76];
-    }];
+    return LGDynamicColor([[UIColor whiteColor] colorWithAlphaComponent:0.76], [[UIColor whiteColor] colorWithAlphaComponent:0.07]);
 }
 
 UIView *LGMakeSectionDivider(void) {
     UIView *divider = [[UIView alloc] initWithFrame:CGRectZero];
     divider.translatesAutoresizingMaskIntoConstraints = NO;
-    divider.backgroundColor = [UIColor colorWithDynamicProvider:^UIColor * _Nonnull(UITraitCollection * _Nonnull trait) {
-        if (trait.userInterfaceStyle == UIUserInterfaceStyleDark) {
-            return [[UIColor whiteColor] colorWithAlphaComponent:0.08];
-        }
-        return [[UIColor blackColor] colorWithAlphaComponent:0.08];
-    }];
+    divider.backgroundColor = LGDynamicColor([[UIColor blackColor] colorWithAlphaComponent:0.08], [[UIColor whiteColor] colorWithAlphaComponent:0.08]);
     divider.layer.cornerRadius = 0.5;
     [NSLayoutConstraint activateConstraints:@[
         [divider.heightAnchor constraintEqualToConstant:1.0]
@@ -439,33 +448,28 @@ UIBarButtonItem *LGMakeCircularBackItem(id target, SEL action) {
 
 UIBarButtonItem *LGMakeCircularMenuItem(id target, SEL applyAction, SEL resetAction, NSString *resetTitle) {
     __weak id weakTarget = target;
-    UIAction *apply = [UIAction actionWithTitle:LGLocalized(@"prefs.button.apply")
-                                           image:[UIImage systemImageNamed:@"checkmark"]
-                                      identifier:nil
-                                         handler:^(__kindof UIAction *action) {
-        (void)action;
+    LGMenuItem *apply = [LGMenuItem itemWithTitle:LGLocalized(@"prefs.button.apply")
+                                       symbolName:@"checkmark"
+                                          handler:^{
         id strongTarget = weakTarget;
         if (strongTarget && [strongTarget respondsToSelector:applyAction]) {
             ((void (*)(id, SEL))objc_msgSend)(strongTarget, applyAction);
         }
     }];
-    UIAction *reset = [UIAction actionWithTitle:(resetTitle.length ? resetTitle : LGLocalized(@"prefs.button.reset"))
-                                           image:[UIImage systemImageNamed:@"arrow.counterclockwise"]
-                                      identifier:nil
-                                         handler:^(__kindof UIAction *action) {
-        (void)action;
+    LGMenuItem *reset = [LGMenuItem itemWithTitle:(resetTitle.length ? resetTitle : LGLocalized(@"prefs.button.reset"))
+                                       symbolName:@"arrow.counterclockwise"
+                                          handler:^{
         id strongTarget = weakTarget;
         if (strongTarget && [strongTarget respondsToSelector:resetAction]) {
             ((void (*)(id, SEL))objc_msgSend)(strongTarget, resetAction);
         }
     }];
-    UIMenu *menu = [UIMenu menuWithTitle:@"" children:@[ apply, reset ]];
     LGButtonView *button = [[LGButtonView alloc] initWithFrame:CGRectMake(0.0, 0.0, 44.0, 44.0)
                                                     symbolName:@"line.3.horizontal"
                                                     blurRadius:2.0];
     button.clipsToBounds = NO;
     button.layer.masksToBounds = NO;
-    [button setPrimaryMenu:menu];
+    button.menuItems = @[ apply, reset ];
     button.accessibilityLabel = LGLocalized(@"prefs.button.more");
     [button.widthAnchor constraintEqualToConstant:44.0].active = YES;
     [button.heightAnchor constraintEqualToConstant:44.0].active = YES;
@@ -637,10 +641,10 @@ void LGPresentTextInputSheet(UIViewController *controller,
     [overlay addSubview:dismissControl];
 
     UIVisualEffectView *panel =
-        [[UIVisualEffectView alloc] initWithEffect:[UIBlurEffect effectWithStyle:UIBlurEffectStyleSystemMaterial]];
+        [[UIVisualEffectView alloc] initWithEffect:LGSystemMaterialBlurEffect()];
     panel.translatesAutoresizingMaskIntoConstraints = NO;
     panel.layer.cornerRadius = 32.0;
-    panel.layer.cornerCurve = kCACornerCurveContinuous;
+    LGLayerSetContinuousCorners(panel.layer);
     panel.layer.masksToBounds = YES;
     panel.transform = CGAffineTransformMakeScale(0.96, 0.96);
 
@@ -654,21 +658,21 @@ void LGPresentTextInputSheet(UIViewController *controller,
     bodyLabel.translatesAutoresizingMaskIntoConstraints = NO;
     bodyLabel.text = message.length ? message : @"";
     bodyLabel.font = [UIFont systemFontOfSize:15.0 weight:UIFontWeightMedium];
-    bodyLabel.textColor = [UIColor secondaryLabelColor];
+    bodyLabel.textColor = LGSecondaryLabelColor();
     bodyLabel.numberOfLines = 0;
 
     UIView *textContainer = [[UIView alloc] initWithFrame:CGRectZero];
     textContainer.translatesAutoresizingMaskIntoConstraints = NO;
-    textContainer.backgroundColor = [UIColor tertiarySystemFillColor];
+    textContainer.backgroundColor = LGTertiarySystemFillColor();
     textContainer.layer.cornerRadius = 18.0;
-    textContainer.layer.cornerCurve = kCACornerCurveContinuous;
+    LGLayerSetContinuousCorners(textContainer.layer);
     textContainer.layer.masksToBounds = YES;
 
     UITextField *textField = [[UITextField alloc] initWithFrame:CGRectZero];
     textField.translatesAutoresizingMaskIntoConstraints = NO;
     textField.backgroundColor = UIColor.clearColor;
-    textField.font = monospaced ? [UIFont monospacedSystemFontOfSize:15.0 weight:UIFontWeightMedium] : [UIFont systemFontOfSize:17.0 weight:UIFontWeightMedium];
-    textField.textColor = [UIColor labelColor];
+    textField.font = monospaced ? LGMonospacedFont(15.0, UIFontWeightMedium) : [UIFont systemFontOfSize:17.0 weight:UIFontWeightMedium];
+    textField.textColor = LGLabelColor();
     textField.text = initialText ?: @"";
     textField.placeholder = placeholder ?: @"";
     textField.clearButtonMode = UITextFieldViewModeWhileEditing;
@@ -683,11 +687,11 @@ void LGPresentTextInputSheet(UIViewController *controller,
     UIButton *cancelButton = [UIButton buttonWithType:UIButtonTypeSystem];
     cancelButton.translatesAutoresizingMaskIntoConstraints = NO;
     [cancelButton setTitle:LGLocalized(@"prefs.button.cancel") forState:UIControlStateNormal];
-    [cancelButton setTitleColor:[UIColor secondaryLabelColor] forState:UIControlStateNormal];
+    [cancelButton setTitleColor:LGSecondaryLabelColor() forState:UIControlStateNormal];
     cancelButton.titleLabel.font = [UIFont systemFontOfSize:17.0 weight:UIFontWeightSemibold];
-    cancelButton.backgroundColor = [UIColor tertiarySystemFillColor];
+    cancelButton.backgroundColor = LGTertiarySystemFillColor();
     cancelButton.layer.cornerRadius = 23.0;
-    cancelButton.layer.cornerCurve = kCACornerCurveContinuous;
+    LGLayerSetContinuousCorners(cancelButton.layer);
     cancelButton.layer.masksToBounds = YES;
 
     UIButton *applyButton = [UIButton buttonWithType:UIButtonTypeSystem];
@@ -697,7 +701,7 @@ void LGPresentTextInputSheet(UIViewController *controller,
     applyButton.titleLabel.font = [UIFont systemFontOfSize:17.0 weight:UIFontWeightSemibold];
     applyButton.backgroundColor = [UIColor systemBlueColor];
     applyButton.layer.cornerRadius = 23.0;
-    applyButton.layer.cornerCurve = kCACornerCurveContinuous;
+    LGLayerSetContinuousCorners(applyButton.layer);
     applyButton.layer.masksToBounds = YES;
 
     UIStackView *buttonRow = [[UIStackView alloc] initWithArrangedSubviews:@[cancelButton, applyButton]];
@@ -808,22 +812,22 @@ void LGPresentTextInputSheet(UIViewController *controller,
         } completion:nil];
     }];
 
-    [dismissControl addAction:[UIAction actionWithHandler:^(__kindof UIAction * _Nonnull _) {
+    LGControlAddHandler(dismissControl, UIControlEventTouchUpInside, ^(__unused __kindof UIControl *lgSender) {
         [weakTextField resignFirstResponder];
         cleanupObservers();
         LGDismissOverlayPanel(overlay, panel);
-    }] forControlEvents:UIControlEventTouchUpInside];
-    [cancelButton addAction:[UIAction actionWithHandler:^(__kindof UIAction * _Nonnull _) {
+    });
+    LGControlAddHandler(cancelButton, UIControlEventTouchUpInside, ^(__unused __kindof UIControl *lgSender) {
         [weakTextField resignFirstResponder];
         cleanupObservers();
         LGDismissOverlayPanel(overlay, panel);
-    }] forControlEvents:UIControlEventTouchUpInside];
-    [applyButton addAction:[UIAction actionWithHandler:^(__kindof UIAction * _Nonnull _) {
+    });
+    LGControlAddHandler(applyButton, UIControlEventTouchUpInside, ^(__unused __kindof UIControl *lgSender) {
         [weakTextField resignFirstResponder];
         cleanupObservers();
         if (applyBlock) applyBlock(textField.text ?: @"");
         LGDismissOverlayPanel(overlay, panel);
-    }] forControlEvents:UIControlEventTouchUpInside];
+    });
 
     [controller.view addSubview:overlay];
     [UIView animateWithDuration:0.22 animations:^{
@@ -855,10 +859,10 @@ void LGPresentMultilineTextInputSheet(UIViewController *controller,
     [overlay addSubview:dismissControl];
 
     UIVisualEffectView *panel =
-        [[UIVisualEffectView alloc] initWithEffect:[UIBlurEffect effectWithStyle:UIBlurEffectStyleSystemMaterial]];
+        [[UIVisualEffectView alloc] initWithEffect:LGSystemMaterialBlurEffect()];
     panel.translatesAutoresizingMaskIntoConstraints = NO;
     panel.layer.cornerRadius = 32.0;
-    panel.layer.cornerCurve = kCACornerCurveContinuous;
+    LGLayerSetContinuousCorners(panel.layer);
     panel.layer.masksToBounds = YES;
     panel.transform = CGAffineTransformMakeScale(0.96, 0.96);
 
@@ -872,21 +876,21 @@ void LGPresentMultilineTextInputSheet(UIViewController *controller,
     bodyLabel.translatesAutoresizingMaskIntoConstraints = NO;
     bodyLabel.text = message.length ? message : @"";
     bodyLabel.font = [UIFont systemFontOfSize:15.0 weight:UIFontWeightMedium];
-    bodyLabel.textColor = [UIColor secondaryLabelColor];
+    bodyLabel.textColor = LGSecondaryLabelColor();
     bodyLabel.numberOfLines = 0;
 
     UIView *textContainer = [[UIView alloc] initWithFrame:CGRectZero];
     textContainer.translatesAutoresizingMaskIntoConstraints = NO;
-    textContainer.backgroundColor = [UIColor tertiarySystemFillColor];
+    textContainer.backgroundColor = LGTertiarySystemFillColor();
     textContainer.layer.cornerRadius = 20.0;
-    textContainer.layer.cornerCurve = kCACornerCurveContinuous;
+    LGLayerSetContinuousCorners(textContainer.layer);
     textContainer.layer.masksToBounds = YES;
 
     UITextView *textView = [[UITextView alloc] initWithFrame:CGRectZero];
     textView.translatesAutoresizingMaskIntoConstraints = NO;
     textView.backgroundColor = UIColor.clearColor;
-    textView.font = [UIFont monospacedSystemFontOfSize:13.0 weight:UIFontWeightMedium];
-    textView.textColor = [UIColor labelColor];
+    textView.font = LGMonospacedFont(13.0, UIFontWeightMedium);
+    textView.textColor = LGLabelColor();
     textView.textContainerInset = UIEdgeInsetsMake(12.0, 10.0, 12.0, 10.0);
     textView.autocorrectionType = UITextAutocorrectionTypeNo;
     textView.autocapitalizationType = UITextAutocapitalizationTypeNone;
@@ -900,8 +904,8 @@ void LGPresentMultilineTextInputSheet(UIViewController *controller,
     UILabel *placeholderLabel = [[UILabel alloc] initWithFrame:CGRectZero];
     placeholderLabel.translatesAutoresizingMaskIntoConstraints = NO;
     placeholderLabel.text = placeholder.length ? placeholder : @"";
-    placeholderLabel.font = [UIFont monospacedSystemFontOfSize:13.0 weight:UIFontWeightMedium];
-    placeholderLabel.textColor = [UIColor tertiaryLabelColor];
+    placeholderLabel.font = LGMonospacedFont(13.0, UIFontWeightMedium);
+    placeholderLabel.textColor = LGTertiaryLabelColor();
     placeholderLabel.numberOfLines = 0;
     placeholderLabel.userInteractionEnabled = NO;
     placeholderLabel.hidden = textView.text.length > 0;
@@ -912,11 +916,11 @@ void LGPresentMultilineTextInputSheet(UIViewController *controller,
     UIButton *cancelButton = [UIButton buttonWithType:UIButtonTypeSystem];
     cancelButton.translatesAutoresizingMaskIntoConstraints = NO;
     [cancelButton setTitle:LGLocalized(@"prefs.button.cancel") forState:UIControlStateNormal];
-    [cancelButton setTitleColor:[UIColor secondaryLabelColor] forState:UIControlStateNormal];
+    [cancelButton setTitleColor:LGSecondaryLabelColor() forState:UIControlStateNormal];
     cancelButton.titleLabel.font = [UIFont systemFontOfSize:17.0 weight:UIFontWeightSemibold];
-    cancelButton.backgroundColor = [UIColor tertiarySystemFillColor];
+    cancelButton.backgroundColor = LGTertiarySystemFillColor();
     cancelButton.layer.cornerRadius = 23.0;
-    cancelButton.layer.cornerCurve = kCACornerCurveContinuous;
+    LGLayerSetContinuousCorners(cancelButton.layer);
     cancelButton.layer.masksToBounds = YES;
 
     UIButton *applyButton = [UIButton buttonWithType:UIButtonTypeSystem];
@@ -926,7 +930,7 @@ void LGPresentMultilineTextInputSheet(UIViewController *controller,
     applyButton.titleLabel.font = [UIFont systemFontOfSize:17.0 weight:UIFontWeightSemibold];
     applyButton.backgroundColor = [UIColor systemBlueColor];
     applyButton.layer.cornerRadius = 23.0;
-    applyButton.layer.cornerCurve = kCACornerCurveContinuous;
+    LGLayerSetContinuousCorners(applyButton.layer);
     applyButton.layer.masksToBounds = YES;
 
     UIStackView *buttonRow = [[UIStackView alloc] initWithArrangedSubviews:@[cancelButton, applyButton]];
@@ -1056,24 +1060,24 @@ void LGPresentMultilineTextInputSheet(UIViewController *controller,
             [strongOverlay layoutIfNeeded];
         } completion:nil];
     }];
-    [dismissControl addAction:[UIAction actionWithHandler:^(__kindof UIAction * _Nonnull _) {
+    LGControlAddHandler(dismissControl, UIControlEventTouchUpInside, ^(__unused __kindof UIControl *lgSender) {
         [weakTextView resignFirstResponder];
         cleanupObservers();
         LGDismissOverlayPanel(overlay, panel);
-    }] forControlEvents:UIControlEventTouchUpInside];
+    });
 
-    [cancelButton addAction:[UIAction actionWithHandler:^(__kindof UIAction * _Nonnull _) {
+    LGControlAddHandler(cancelButton, UIControlEventTouchUpInside, ^(__unused __kindof UIControl *lgSender) {
         [weakTextView resignFirstResponder];
         cleanupObservers();
         LGDismissOverlayPanel(overlay, panel);
-    }] forControlEvents:UIControlEventTouchUpInside];
+    });
 
-    [applyButton addAction:[UIAction actionWithHandler:^(__kindof UIAction * _Nonnull _) {
+    LGControlAddHandler(applyButton, UIControlEventTouchUpInside, ^(__unused __kindof UIControl *lgSender) {
         [weakTextView resignFirstResponder];
         cleanupObservers();
         if (applyBlock) applyBlock(textView.text ?: @"");
         LGDismissOverlayPanel(overlay, panel);
-    }] forControlEvents:UIControlEventTouchUpInside];
+    });
 
     [controller.view addSubview:overlay];
     [UIView animateWithDuration:0.22 animations:^{
@@ -1088,7 +1092,7 @@ static UIView *LGMakeRespringBar(id target, SEL respringAction, SEL laterAction)
     UIView *card = [[UIView alloc] initWithFrame:CGRectZero];
     card.translatesAutoresizingMaskIntoConstraints = NO;
     card.layer.cornerRadius = 26.0;
-    card.layer.cornerCurve = kCACornerCurveContinuous;
+    LGLayerSetContinuousCorners(card.layer);
     card.layer.masksToBounds = YES;
     card.alpha = 0.0;
     card.hidden = YES;
@@ -1106,12 +1110,7 @@ static UIView *LGMakeRespringBar(id target, SEL respringAction, SEL laterAction)
     UIView *tintView = [[UIView alloc] initWithFrame:CGRectZero];
     tintView.translatesAutoresizingMaskIntoConstraints = NO;
     tintView.userInteractionEnabled = NO;
-    tintView.backgroundColor = [UIColor colorWithDynamicProvider:^UIColor * _Nonnull(UITraitCollection * _Nonnull trait) {
-        if (trait.userInterfaceStyle == UIUserInterfaceStyleDark) {
-            return [[UIColor whiteColor] colorWithAlphaComponent:0.04];
-        }
-        return [[UIColor blackColor] colorWithAlphaComponent:0.01];
-    }];
+    tintView.backgroundColor = LGDynamicColor([[UIColor blackColor] colorWithAlphaComponent:0.01], [[UIColor whiteColor] colorWithAlphaComponent:0.04]);
     [card addSubview:tintView];
     objc_setAssociatedObject(card, kLGRespringBarTintViewKey, tintView, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 
@@ -1123,7 +1122,7 @@ static UIView *LGMakeRespringBar(id target, SEL respringAction, SEL laterAction)
     UILabel *subtitleLabel = [[UILabel alloc] initWithFrame:CGRectZero];
     subtitleLabel.translatesAutoresizingMaskIntoConstraints = NO;
     subtitleLabel.text = LGLocalized(@"prefs.respring_bar.subtitle");
-    subtitleLabel.textColor = [UIColor secondaryLabelColor];
+    subtitleLabel.textColor = LGSecondaryLabelColor();
     subtitleLabel.font = [UIFont systemFontOfSize:13.0 weight:UIFontWeightRegular];
     subtitleLabel.numberOfLines = 2;
 
@@ -1134,22 +1133,17 @@ static UIView *LGMakeRespringBar(id target, SEL respringAction, SEL laterAction)
     button.titleLabel.font = [UIFont systemFontOfSize:15.0 weight:UIFontWeightSemibold];
     button.backgroundColor = [UIColor systemBlueColor];
     button.layer.cornerRadius = 14.0;
-    button.layer.cornerCurve = kCACornerCurveContinuous;
+    LGLayerSetContinuousCorners(button.layer);
     [button addTarget:target action:respringAction forControlEvents:UIControlEventTouchUpInside];
 
     UIButton *laterButton = [UIButton buttonWithType:UIButtonTypeSystem];
     laterButton.translatesAutoresizingMaskIntoConstraints = NO;
     [laterButton setTitle:LGLocalized(@"prefs.button.later") forState:UIControlStateNormal];
-    [laterButton setTitleColor:[UIColor secondaryLabelColor] forState:UIControlStateNormal];
+    [laterButton setTitleColor:LGSecondaryLabelColor() forState:UIControlStateNormal];
     laterButton.titleLabel.font = [UIFont systemFontOfSize:15.0 weight:UIFontWeightSemibold];
-    laterButton.backgroundColor = [UIColor colorWithDynamicProvider:^UIColor * _Nonnull(UITraitCollection * _Nonnull trait) {
-        if (trait.userInterfaceStyle == UIUserInterfaceStyleDark) {
-            return [[UIColor whiteColor] colorWithAlphaComponent:0.10];
-        }
-        return [[UIColor blackColor] colorWithAlphaComponent:0.06];
-    }];
+    laterButton.backgroundColor = LGDynamicColor([[UIColor blackColor] colorWithAlphaComponent:0.06], [[UIColor whiteColor] colorWithAlphaComponent:0.10]);
     laterButton.layer.cornerRadius = 14.0;
-    laterButton.layer.cornerCurve = kCACornerCurveContinuous;
+    LGLayerSetContinuousCorners(laterButton.layer);
     [laterButton addTarget:target action:laterAction forControlEvents:UIControlEventTouchUpInside];
 
     [NSLayoutConstraint activateConstraints:@[
@@ -1271,7 +1265,7 @@ void LGAppendAboutMarkdownLine(NSString *line, UIStackView *stack) {
         NSString *heading = [[trimmed substringFromIndex:headingLevel + 1] stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
         [stack addArrangedSubview:LGMakeAboutMarkdownLabel(heading,
                                                             [UIFont systemFontOfSize:headingLevel == 1 ? 20.0 : 17.0 weight:UIFontWeightBold],
-                                                            UIColor.labelColor)];
+                                                            LGLabelColor())];
         return;
     }
 
@@ -1280,14 +1274,14 @@ void LGAppendAboutMarkdownLine(NSString *line, UIStackView *stack) {
     if (!isBullet) {
         [stack addArrangedSubview:LGMakeAboutMarkdownLabel(body,
                                                             [UIFont systemFontOfSize:15.0 weight:UIFontWeightRegular],
-                                                            UIColor.labelColor)];
+                                                            LGLabelColor())];
         return;
     }
 
     UIView *row = [[UIView alloc] initWithFrame:CGRectZero];
     row.translatesAutoresizingMaskIntoConstraints = NO;
-    UILabel *bullet = LGMakeAboutMarkdownLabel(@"•", [UIFont systemFontOfSize:15.0 weight:UIFontWeightSemibold], UIColor.secondaryLabelColor);
-    UILabel *label = LGMakeAboutMarkdownLabel(body, [UIFont systemFontOfSize:15.0 weight:UIFontWeightRegular], UIColor.labelColor);
+    UILabel *bullet = LGMakeAboutMarkdownLabel(@"•", [UIFont systemFontOfSize:15.0 weight:UIFontWeightSemibold], LGSecondaryLabelColor());
+    UILabel *label = LGMakeAboutMarkdownLabel(body, [UIFont systemFontOfSize:15.0 weight:UIFontWeightRegular], LGLabelColor());
     [row addSubview:bullet];
     [row addSubview:label];
     [NSLayoutConstraint activateConstraints:@[
@@ -1314,12 +1308,11 @@ UIView *LGMakeDonationRow(UIViewController *controller,
     button.contentVerticalAlignment = UIControlContentVerticalAlignmentFill;
     button.contentEdgeInsets = UIEdgeInsetsZero;
     __weak UIViewController *weakController = controller;
-    [button addAction:[UIAction actionWithHandler:^(__kindof UIAction * _Nonnull action) {
-        (void)action;
-        if (!address.length) return;
+    LGControlAddHandler(button, UIControlEventTouchUpInside, ^(__unused __kindof UIControl *lgSender) {
+                if (!address.length) return;
         UIPasteboard.generalPasteboard.string = address;
         LGPresentInfoSheet(weakController, @"Copied", @"Wallet address copied to clipboard.");
-    }] forControlEvents:UIControlEventTouchUpInside];
+    });
 
     UIView *body = [[UIView alloc] initWithFrame:CGRectZero];
     body.userInteractionEnabled = NO;
@@ -1334,18 +1327,18 @@ UIView *LGMakeDonationRow(UIViewController *controller,
     badge.textColor = UIColor.whiteColor;
     badge.backgroundColor = color;
     badge.layer.cornerRadius = 14.0;
-    badge.layer.cornerCurve = kCACornerCurveContinuous;
+    LGLayerSetContinuousCorners(badge.layer);
     badge.layer.masksToBounds = YES;
 
-    UILabel *nameLabel = LGMakeAboutMarkdownLabel(name, [UIFont systemFontOfSize:16.0 weight:UIFontWeightSemibold], UIColor.labelColor);
-    UILabel *networkLabel = LGMakeAboutMarkdownLabel(network, [UIFont systemFontOfSize:12.0 weight:UIFontWeightMedium], UIColor.secondaryLabelColor);
-    UILabel *addressLabel = LGMakeAboutMarkdownLabel(address, [UIFont monospacedSystemFontOfSize:12.0 weight:UIFontWeightRegular], UIColor.tertiaryLabelColor);
+    UILabel *nameLabel = LGMakeAboutMarkdownLabel(name, [UIFont systemFontOfSize:16.0 weight:UIFontWeightSemibold], LGLabelColor());
+    UILabel *networkLabel = LGMakeAboutMarkdownLabel(network, [UIFont systemFontOfSize:12.0 weight:UIFontWeightMedium], LGSecondaryLabelColor());
+    UILabel *addressLabel = LGMakeAboutMarkdownLabel(address, LGMonospacedFont(12.0, UIFontWeightRegular), LGTertiaryLabelColor());
     addressLabel.lineBreakMode = NSLineBreakByTruncatingMiddle;
     addressLabel.numberOfLines = 1;
 
-    UIImageView *copyIcon = [[UIImageView alloc] initWithImage:[UIImage systemImageNamed:@"doc.on.doc"]];
+    UIImageView *copyIcon = [[UIImageView alloc] initWithImage:LGSymbolImage(@"doc.on.doc", 17.0, UIFontWeightRegular)];
     copyIcon.translatesAutoresizingMaskIntoConstraints = NO;
-    copyIcon.tintColor = UIColor.tertiaryLabelColor;
+    copyIcon.tintColor = LGTertiaryLabelColor();
     copyIcon.contentMode = UIViewContentModeScaleAspectFit;
 
     UIView *titleRow = [[UIView alloc] initWithFrame:CGRectZero];
@@ -1392,7 +1385,7 @@ UIView *LGMakeDonationCard(UIViewController *controller) {
     card.translatesAutoresizingMaskIntoConstraints = NO;
     card.backgroundColor = LGSubpageCardBackgroundColor();
     card.layer.cornerRadius = 23.25;
-    card.layer.cornerCurve = kCACornerCurveContinuous;
+    LGLayerSetContinuousCorners(card.layer);
     card.layer.masksToBounds = YES;
 
     UIStackView *stack = [[UIStackView alloc] initWithFrame:CGRectZero];
@@ -1407,13 +1400,13 @@ UIView *LGMakeDonationCard(UIViewController *controller) {
     headerStack.spacing = 3.0;
     headerStack.translatesAutoresizingMaskIntoConstraints = NO;
     [header addSubview:headerStack];
-    [headerStack addArrangedSubview:LGMakeAboutMarkdownLabel(@"Donate", [UIFont systemFontOfSize:20.0 weight:UIFontWeightBold], UIColor.labelColor)];
-    [headerStack addArrangedSubview:LGMakeAboutMarkdownLabel(@"Crypto only for now. Tap a row to copy the address.", [UIFont systemFontOfSize:13.0 weight:UIFontWeightMedium], UIColor.secondaryLabelColor)];
+    [headerStack addArrangedSubview:LGMakeAboutMarkdownLabel(@"Donate", [UIFont systemFontOfSize:20.0 weight:UIFontWeightBold], LGLabelColor())];
+    [headerStack addArrangedSubview:LGMakeAboutMarkdownLabel(@"Crypto only for now. Tap a row to copy the address.", [UIFont systemFontOfSize:13.0 weight:UIFontWeightMedium], LGSecondaryLabelColor())];
     [stack addArrangedSubview:header];
 
     NSArray<NSDictionary *> *methods = @[
         @{@"name": @"BTC", @"network": @"Bitcoin", @"symbol": @"B", @"color": UIColor.systemOrangeColor, @"address": @"bc1qlv830emqsffqslns2e3kglkgcdnlag0nfnyj4k"},
-        @{@"name": @"ETH", @"network": @"Ethereum", @"symbol": @"E", @"color": UIColor.systemIndigoColor, @"address": @"0x6245EF47c749D1b5c2830b145cB943a8aD826bea"},
+        @{@"name": @"ETH", @"network": @"Ethereum", @"symbol": @"E", @"color": LGSystemIndigoColor(), @"address": @"0x6245EF47c749D1b5c2830b145cB943a8aD826bea"},
         @{@"name": @"LTC", @"network": @"Litecoin", @"symbol": @"L", @"color": UIColor.systemGrayColor, @"address": @"ltc1q7j6vlgvymxdtwm46u0n22h7m4890cexfp22vfm"},
         @{@"name": @"DOGE", @"network": @"Dogecoin", @"symbol": @"D", @"color": UIColor.systemYellowColor, @"address": @"D76nuR1HWSymSLhFYYhkfpc4JHg1HjvgWD"},
         @{@"name": @"SOL", @"network": @"Solana", @"symbol": @"S", @"color": UIColor.systemPurpleColor, @"address": @"F1rH3PSMHFHXbGLGQiWXGLRaahfYoVULUwhsvrewM37W"},
@@ -1465,21 +1458,21 @@ UIView *LGMakeAboutContentView(UIViewController *controller, NSBundle *bundle, N
     iconView.translatesAutoresizingMaskIntoConstraints = NO;
     iconView.contentMode = UIViewContentModeScaleAspectFit;
     iconView.layer.cornerRadius = 19.0;
-    iconView.layer.cornerCurve = kCACornerCurveContinuous;
+    LGLayerSetContinuousCorners(iconView.layer);
     iconView.layer.masksToBounds = YES;
     [iconView.widthAnchor constraintEqualToConstant:82.0].active = YES;
     [iconView.heightAnchor constraintEqualToConstant:82.0].active = YES;
 
-    UILabel *nameLabel = LGMakeAboutMarkdownLabel(LGLocalized(@"prefs.app_name"), [UIFont systemFontOfSize:28.0 weight:UIFontWeightBold], UIColor.labelColor);
+    UILabel *nameLabel = LGMakeAboutMarkdownLabel(LGLocalized(@"prefs.app_name"), [UIFont systemFontOfSize:28.0 weight:UIFontWeightBold], LGLabelColor());
     nameLabel.textAlignment = NSTextAlignmentCenter;
-    UILabel *subtitleLabel = LGMakeAboutMarkdownLabel(LGLocalized(@"prefs.hero.subtitle"), [UIFont systemFontOfSize:15.0 weight:UIFontWeightMedium], UIColor.secondaryLabelColor);
+    UILabel *subtitleLabel = LGMakeAboutMarkdownLabel(LGLocalized(@"prefs.hero.subtitle"), [UIFont systemFontOfSize:15.0 weight:UIFontWeightMedium], LGSecondaryLabelColor());
     subtitleLabel.textAlignment = NSTextAlignmentCenter;
 
     UIView *markdownCard = [[UIView alloc] initWithFrame:CGRectZero];
     markdownCard.translatesAutoresizingMaskIntoConstraints = NO;
     markdownCard.backgroundColor = LGSubpageCardBackgroundColor();
     markdownCard.layer.cornerRadius = 23.25;
-    markdownCard.layer.cornerCurve = kCACornerCurveContinuous;
+    LGLayerSetContinuousCorners(markdownCard.layer);
     markdownCard.layer.masksToBounds = YES;
     UIStackView *markdownStack = [[UIStackView alloc] initWithFrame:CGRectZero];
     markdownStack.axis = UILayoutConstraintAxisVertical;
@@ -1494,7 +1487,7 @@ UIView *LGMakeAboutContentView(UIViewController *controller, NSBundle *bundle, N
             LGAppendAboutMarkdownLine(line, markdownStack);
         }
     } else {
-        [markdownStack addArrangedSubview:LGMakeAboutMarkdownLabel([NSString stringWithFormat:@"No changelog found for %@.", packageVersion], [UIFont systemFontOfSize:15.0 weight:UIFontWeightRegular], UIColor.secondaryLabelColor)];
+        [markdownStack addArrangedSubview:LGMakeAboutMarkdownLabel([NSString stringWithFormat:@"No changelog found for %@.", packageVersion], [UIFont systemFontOfSize:15.0 weight:UIFontWeightRegular], LGSecondaryLabelColor())];
     }
 
     UIView *donationCard = LGMakeDonationCard(controller);

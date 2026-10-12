@@ -1,4 +1,5 @@
 #import <UIKit/UIKit.h>
+#import "../Shared/LGCompat.h"
 #import <QuartzCore/QuartzCore.h>
 #import "../Shared/LGLiveBackdropView.h"
 #import "../Shared/LGGlassKit.h"
@@ -629,7 +630,7 @@ static void ccRememberOriginalRoundState(UIView *view) {
                              @(view.layer.cornerRadius),
                              OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     objc_setAssociatedObject(view, kCCRoundOriginalCurveKey,
-                             view.layer.cornerCurve ?: (id)[NSNull null],
+                             @(LGLayerGetCornerStyle(view.layer)),
                              OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     objc_setAssociatedObject(view, kCCRoundOriginalMasksKey,
                              @(view.layer.masksToBounds),
@@ -647,7 +648,7 @@ static void ccRestoreRoundState(UIView *view) {
     objc_setAssociatedObject(view.layer, kCCRoundDesiredRadiusKey, nil,
                              OBJC_ASSOCIATION_ASSIGN);
     view.layer.cornerRadius = radius.doubleValue;
-    view.layer.cornerCurve = curve == [NSNull null] ? nil : curve;
+    LGLayerSetCornerStyle(view.layer, (LGCornerStyle)[curve integerValue]);
     view.layer.masksToBounds = masks.boolValue;
 
     objc_setAssociatedObject(view, kCCRoundOriginalRadiusKey, nil, OBJC_ASSOCIATION_ASSIGN);
@@ -676,7 +677,7 @@ static void lgRound(UIView *v, CGFloat r) {
     objc_setAssociatedObject(v.layer, kCCRoundDesiredRadiusKey, @(r),
                              OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     if (fabs(v.layer.cornerRadius - r) > 0.5) v.layer.cornerRadius = r;
-    v.layer.cornerCurve   = kCACornerCurveContinuous;
+    LGLayerSetContinuousCorners(v.layer);
     v.layer.masksToBounds = YES;
 }
 
@@ -835,21 +836,39 @@ static void ccRefreshContentContainerGlass(UIView *container) {
 #pragma mark - hooks
 
 %hook CCUIContentModuleContainerView
-- (void)layoutSubviews { %orig; roundModuleContainer((UIView *)self); }
-- (void)didMoveToWindow { %orig; roundModuleContainer((UIView *)self); }
+- (void)layoutSubviews {
+    %orig;
+    roundModuleContainer((UIView *)self);
+}
+- (void)didMoveToWindow {
+    %orig;
+    roundModuleContainer((UIView *)self);
+}
 %end
 
 %hook CCUIContentModuleContentContainerView
-- (void)layoutSubviews { %orig; ccRefreshContentContainerGlass((UIView *)self); }
+- (void)layoutSubviews {
+    %orig;
+    ccRefreshContentContainerGlass((UIView *)self);
+}
 %end
 
 %hook CCUIContentModuleContentContainer
-- (void)layoutSubviews { %orig; ccRefreshContentContainerGlass((UIView *)self); }
+- (void)layoutSubviews {
+    %orig;
+    ccRefreshContentContainerGlass((UIView *)self);
+}
 %end
 
 %hook CCUIButtonModuleView
-- (void)layoutSubviews { %orig; roundToggleFills((UIView *)self); }
-- (void)didMoveToWindow { %orig; roundToggleFills((UIView *)self); }
+- (void)layoutSubviews {
+    %orig;
+    roundToggleFills((UIView *)self);
+}
+- (void)didMoveToWindow {
+    %orig;
+    roundToggleFills((UIView *)self);
+}
 %end
 
 %hook CCUIContinuousSliderView

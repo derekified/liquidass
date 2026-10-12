@@ -1,4 +1,5 @@
 #import "LGPrefsLiquidSlider.h"
+#import "../Shared/LGCompat.h"
 #import "../Shared/LGLiveBackdropView.h"
 #import "../Shared/LGSharedSupport.h"
 #import "../Shared/LGLiquidMotion.h"
@@ -704,7 +705,7 @@ static UIColor *LGSliderInactiveTrackColor(UITraitCollection *traitCollection) {
     self.trackBackgroundView.hidden = NO;
     self.trackBackgroundView.frame = track;
     self.trackBackgroundView.layer.cornerRadius = CGRectGetHeight(track) * 0.5;
-    self.trackBackgroundView.layer.cornerCurve = kCACornerCurveContinuous;
+    LGLayerSetContinuousCorners(self.trackBackgroundView.layer);
 
     CGFloat range = self.maximumValue - self.minimumValue;
     CGFloat normalized = range > FLT_EPSILON ? (self.value - self.minimumValue) / range : 0.0;
@@ -757,7 +758,7 @@ static UIColor *LGSliderInactiveTrackColor(UITraitCollection *traitCollection) {
         self.magneticFillView.frame = CGRectMake(startX, CGRectGetMinY(track), width, CGRectGetHeight(track));
     }
     self.magneticFillView.layer.cornerRadius = CGRectGetHeight(track) * 0.5;
-    self.magneticFillView.layer.cornerCurve = kCACornerCurveContinuous;
+    LGLayerSetContinuousCorners(self.magneticFillView.layer);
 }
 
 @end

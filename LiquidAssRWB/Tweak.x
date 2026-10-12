@@ -57,11 +57,11 @@ static void RWBReloadPrefsCallback(CFNotificationCenterRef __unused center,
 @property (nonatomic, copy, readonly) NSString *extensionBundleIdentifier;
 @end
 
-@interface CHUISWidgetScene : UIWindowScene
+@interface CHUISWidgetScene : UIResponder
 @property (nonatomic, copy, readonly) CHSWidget *widget;
 @end
 
-@interface CHUISAvocadoWindowScene : UIWindowScene
+@interface CHUISAvocadoWindowScene : UIResponder
 @property (nonatomic, copy, readonly) CHSWidget *widget;
 @end
 
@@ -182,21 +182,18 @@ static BOOL ShouldHandleWidget(NSString *bundleIdentifier) {
 
 %property (nonatomic, strong) NSNumber *rwb_shouldHideBackground;
 
-- (UIWindow *)initWithWindowScene:(UIWindowScene *)scene {
-    if ([scene isKindOfClass:%c(CHUISAvocadoWindowScene)]) {
-        CHUISAvocadoWindowScene *avocadoScene = (CHUISAvocadoWindowScene *)scene;
-        if (ShouldHandleWidget(avocadoScene.widget.extensionBundleIdentifier)) {
-            self.rwb_shouldHideBackground = @YES;
-        }
-    } else if ([scene isKindOfClass:%c(CHUISWidgetScene)]) {
-        CHUISWidgetScene *widgetScene = (CHUISWidgetScene *)scene;
-        if (ShouldHandleWidget(widgetScene.widget.extensionBundleIdentifier)) {
+- (UIWindow *)initWithWindowScene:(id)scene {
+    if ([scene isKindOfClass:%c(CHUISAvocadoWindowScene)] || [scene isKindOfClass:%c(CHUISWidgetScene)]) {
+        CHSWidget *widget = [scene respondsToSelector:@selector(widget)] ? [scene widget] : nil;
+        if (ShouldHandleWidget(widget.extensionBundleIdentifier)) {
             self.rwb_shouldHideBackground = @YES;
         }
     }
     UIWindow *window = %orig;
     if (window && kIsEnabled && kForceDarkMode) {
-        [window setOverrideUserInterfaceStyle:UIUserInterfaceStyleDark];
+        if (@available(iOS 13.0, *)) {
+            [window setOverrideUserInterfaceStyle:UIUserInterfaceStyleDark];
+        }
     }
     return window;
 }

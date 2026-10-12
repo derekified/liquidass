@@ -1,4 +1,5 @@
 #import <UIKit/UIKit.h>
+#import "../Shared/LGCompat.h"
 #import <objc/runtime.h>
 #import <objc/message.h>
 #import <float.h>
@@ -64,7 +65,7 @@ static void LGUpdateLiquidAssEntryFooter(UITableViewCell *cell) {
         footer = [[UILabel alloc] initWithFrame:CGRectZero];
         footer.text = @"dylv";
         footer.font = [UIFont systemFontOfSize:10.0 weight:UIFontWeightRegular];
-        footer.textColor = UIColor.tertiaryLabelColor;
+        footer.textColor = LGTertiaryLabelColor();
         footer.textAlignment = NSTextAlignmentRight;
         footer.userInteractionEnabled = NO;
         footer.accessibilityElementsHidden = YES;
@@ -232,7 +233,7 @@ static UIColor *LGSidebarTintBaseColor(void) {
         base = ((UIColor *(*)(Class, SEL))objc_msgSend)(UIColor.class, selector);
     }
     if (!base) {
-        if (@available(iOS 13.0, *)) base = UIColor.secondarySystemGroupedBackgroundColor;
+        if (@available(iOS 13.0, *)) base = LGSecondarySystemGroupedBackgroundColor();
     }
     return base ?: UIColor.whiteColor;
 }
@@ -241,7 +242,7 @@ static UIColor *LGDetailTintBaseColor(void) {
     SEL selector = NSSelectorFromString(@"groupTableViewBackgroundColor");
     if ([UIColor respondsToSelector:selector])
         return ((UIColor *(*)(Class, SEL))objc_msgSend)(UIColor.class, selector);
-    if (@available(iOS 13.0, *)) return UIColor.systemGroupedBackgroundColor;
+    if (@available(iOS 13.0, *)) return LGSystemGroupedBackgroundColor();
     return UIColor.whiteColor;
 }
 
@@ -345,12 +346,8 @@ static void LGSettingsPerformSoftHaptic(void) {
     _glass = LGCreateRegisteredGlass(self.bounds, nil, @"PrefsButton");
     _glass.userInteractionEnabled = NO;
     [self addSubview:_glass];
-    UIImageSymbolConfiguration *configuration =
-        [UIImageSymbolConfiguration configurationWithPointSize:24
-                                                        weight:UIImageSymbolWeightRegular];
-    _glyph = [[UIImageView alloc] initWithImage:
-        [UIImage systemImageNamed:@"chevron.left" withConfiguration:configuration]];
-    _glyph.tintColor = UIColor.labelColor;
+    _glyph = [[UIImageView alloc] initWithImage:LGSymbolImage(@"chevron.left", 24.0, UIFontWeightRegular)];
+    _glyph.tintColor = LGLabelColor();
     _glyph.contentMode = UIViewContentModeCenter;
     _glyph.userInteractionEnabled = NO;
     [self addSubview:_glyph];
@@ -364,9 +361,9 @@ static void LGSettingsPerformSoftHaptic(void) {
     self.glass.frame = self.bounds;
     CGFloat radius = CGRectGetHeight(self.bounds) * 0.5;
     self.layer.cornerRadius = radius;
-    self.layer.cornerCurve = kCACornerCurveContinuous;
+    LGLayerSetContinuousCorners(self.layer);
     self.glass.layer.cornerRadius = radius;
-    self.glass.layer.cornerCurve = kCACornerCurveContinuous;
+    LGLayerSetContinuousCorners(self.glass.layer);
     self.glass.layer.masksToBounds = YES;
     self.glyph.frame = self.bounds;
 }
@@ -704,13 +701,12 @@ static void LGInstallSettingsSwitch(UISwitch *owner) {
         overlay.autoresizingMask = UIViewAutoresizingFlexibleWidth |
                                    UIViewAutoresizingFlexibleHeight;
         __weak UISwitch *weakOwner = owner;
-        [overlay addAction:[UIAction actionWithHandler:^(UIAction *action) {
+        LGControlAddHandler(overlay, UIControlEventValueChanged, ^(LGPrefsLiquidSwitch *sender) {
             UISwitch *strongOwner = weakOwner;
-            LGPrefsLiquidSwitch *sender = (LGPrefsLiquidSwitch *)action.sender;
             if (!strongOwner) return;
             [strongOwner setOn:sender.isOn animated:NO];
             [strongOwner sendActionsForControlEvents:UIControlEventValueChanged];
-        }] forControlEvents:UIControlEventValueChanged];
+        });
         objc_setAssociatedObject(owner, kLGSettingsSwitchOverlayKey, overlay,
                                  OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         [owner addSubview:overlay];
@@ -1077,8 +1073,7 @@ static void LGInstallSettingsSegment(UISegmentedControl *control) {
     control.layer.masksToBounds = NO;
 
 
-    if (@available(iOS 13.0, *))
-        glass.layer.cornerCurve = kCACornerCurveContinuous;
+    LGLayerSetContinuousCorners(glass.layer);
 
     LGSegmentAttachGesture(control);
 
@@ -1286,13 +1281,12 @@ static void LGInstallSettingsSlider(UISlider *owner) {
     if (!overlay) {
         overlay = [[LGPrefsLiquidSlider alloc] initWithFrame:CGRectZero];
         __weak UISlider *weakOwner = owner;
-        [overlay addAction:[UIAction actionWithHandler:^(UIAction *action) {
+        LGControlAddHandler(overlay, UIControlEventValueChanged, ^(LGPrefsLiquidSlider *sender) {
             UISlider *strongOwner = weakOwner;
-            LGPrefsLiquidSlider *sender = (LGPrefsLiquidSlider *)action.sender;
             if (!strongOwner) return;
             [strongOwner setValue:sender.value animated:NO];
             [strongOwner sendActionsForControlEvents:UIControlEventValueChanged];
-        }] forControlEvents:UIControlEventValueChanged];
+        });
         objc_setAssociatedObject(owner, kLGSettingsSliderOverlayKey, overlay,
                                  OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     }
@@ -1871,8 +1865,7 @@ static void LGLayoutSidebarPanel(UIView *panel, CGRect frame) {
 
         if (fabs(sub.layer.cornerRadius - radius) > 0.01) {
             sub.layer.cornerRadius = radius;
-            if (@available(iOS 13.0, *))
-                sub.layer.cornerCurve = kCACornerCurveContinuous;
+            LGLayerSetContinuousCorners(sub.layer);
         }
         if (!sub.layer.masksToBounds) sub.layer.masksToBounds = YES;
     }
@@ -1893,8 +1886,7 @@ static BOOL LGViewIsInsideSidebar(UIView *view) {
     CGFloat radius = CGRectGetHeight(self.bounds) * 0.5;
     if (fabs(self.layer.cornerRadius - radius) > 0.01) {
         self.layer.cornerRadius = radius;
-        if (@available(iOS 13.0, *))
-            self.layer.cornerCurve = kCACornerCurveContinuous;
+        LGLayerSetContinuousCorners(self.layer);
     }
 }
 @end
@@ -2213,8 +2205,7 @@ static void LGUpdateSettingsSidebar(UIView *container) {
         CGFloat radius = LGSidebarCornerRadius(container);
         if (fabs(sub.layer.cornerRadius - radius) > 0.01) {
             sub.layer.cornerRadius = radius;
-            if (@available(iOS 13.0, *))
-                sub.layer.cornerCurve = kCACornerCurveContinuous;
+            LGLayerSetContinuousCorners(sub.layer);
         }
         if (!sub.layer.masksToBounds) sub.layer.masksToBounds = YES;
 
@@ -2520,11 +2511,9 @@ static void LGUpdateSettingsSidebar(UIView *container) {
 
     if (!self.showsBookmarkButton) {
         UIImage *mic = nil;
-        if (@available(iOS 13.0, *)) {
-            for (NSString *name in @[@"microphone", @"mic"]) {
-                mic = [UIImage systemImageNamed:name];
-                if (mic) break;
-            }
+        for (NSString *name in @[@"microphone", @"mic"]) {
+            mic = LGSymbolImage(name, 17.0, UIFontWeightRegular);
+            if (mic) break;
         }
         if (mic) {
             [self setImage:mic forSearchBarIcon:UISearchBarIconBookmark
@@ -2581,8 +2570,7 @@ static void LGUpdateSettingsSidebar(UIView *container) {
     if (radius < 0.5) return;
     if (fabs(self.layer.cornerRadius - radius) > 0.01) {
         self.layer.cornerRadius = radius;
-        if (@available(iOS 13.0, *))
-            self.layer.cornerCurve = kCACornerCurveContinuous;
+        LGLayerSetContinuousCorners(self.layer);
     }
     if (!self.layer.masksToBounds) self.layer.masksToBounds = YES;
 }

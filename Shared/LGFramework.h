@@ -1,6 +1,7 @@
 #import <UIKit/UIKit.h>
 #import <QuartzCore/QuartzCore.h>
 #import "LGLiveBackdropView.h"
+#import "LGCompat.h"
 
 @interface LGAdjustableBlurView : UIView
 @property (nonatomic, assign) CGFloat cornerRadius;
@@ -35,10 +36,10 @@
 @property (nonatomic, assign) CGPoint touchStartPoint;
 @property (nonatomic, copy) void (^actionHandler)(void);
 @property (nonatomic, weak) UINavigationController *navigationController;
-@property (nonatomic, strong) UIMenu *primaryMenu;
+@property (nonatomic, copy) NSArray<LGMenuItem *> *menuItems;
 @property (nonatomic, strong) UIButton *menuAnchorButton;
 
-- (void)setPrimaryMenu:(UIMenu *)menu;
+- (void)setMenuItems:(NSArray<LGMenuItem *> *)menuItems;
 - (void)presentMenu;
 
 - (instancetype)initWithFrame:(CGRect)frame

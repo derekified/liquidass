@@ -1,4 +1,5 @@
 #import <UIKit/UIKit.h>
+#import "../Shared/LGCompat.h"
 #import <QuartzCore/QuartzCore.h>
 #import "../Shared/LGLiveBackdropView.h"
 #import "../Shared/LGGlassKit.h"
@@ -37,7 +38,7 @@ static void qaSetBackdropHidden(UIVisualEffectView *effectView) {
 static BOOL isQuickActionsHost(UIView *view) {
     if (![view isKindOfClass:[UIVisualEffectView class]] || !view.window) return NO;
     if (view.window.safeAreaInsets.bottom <= 0.0) return NO;
-    Class qaCls = NSClassFromString(@"CSQuickActionsButton");
+    Class qaCls = LGClassNamed(@"CSQuickActionsButton");
     for (UIView *a = view.superview; a; a = a.superview) {
         if (qaCls && [a isKindOfClass:qaCls]) return YES;
         if ([a isKindOfClass:[UIVisualEffectView class]]) return NO;
@@ -71,7 +72,7 @@ static void injectQuickActionsGlass(UIVisualEffectView *fx) {
     if (glass.superview != container) [container insertSubview:glass atIndex:0];
     glass.frame               = container.bounds;
     glass.layer.cornerRadius  = fmin(CGRectGetWidth(container.bounds), CGRectGetHeight(container.bounds)) * 0.5;
-    glass.layer.cornerCurve   = kCACornerCurveContinuous;
+    LGLayerSetContinuousCorners(glass.layer);
     glass.layer.masksToBounds = YES;
     [glass applyFilters];
     if (!sQuickActionHosts) sQuickActionHosts = [NSHashTable weakObjectsHashTable];

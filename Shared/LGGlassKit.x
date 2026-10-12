@@ -1,4 +1,5 @@
 #import "LGGlassKit.h"
+#import "LGCompat.h"
 #import "LGLiveBackdropView.h"
 #import "LGHostRegistry.h"
 #import <objc/runtime.h>
@@ -6,7 +7,7 @@
 #pragma mark - class / ancestry helpers
 
 BOOL hasAncestorOfClassName(UIView *v, NSString *clsName) {
-    Class cls = NSClassFromString(clsName);
+    Class cls = LGClassNamed(clsName);
     if (!cls) return NO;
     for (UIView *cur = v; cur; cur = cur.superview)
         if ([cur isKindOfClass:cls]) return YES;
@@ -20,7 +21,7 @@ BOOL ancestorNameContains(UIView *v, NSString *sub) {
 }
 
 BOOL isExactClass(UIView *v, NSString *name) {
-    return v && [NSStringFromClass(v.class) isEqualToString:name];
+    return LGObjectIsExactClass(v, name);
 }
 
 #pragma mark - per-host enable prefs
@@ -271,15 +272,29 @@ __attribute__((constructor)) static void lgGlassInitEnableObserver(void) {
     lgRouteMaterialHost((UIView *)self);
 }
 
-- (void)layoutSubviews { %orig; lgRouteMaterialHost((UIView *)self); }
+- (void)layoutSubviews {
+    %orig;
+    lgRouteMaterialHost((UIView *)self);
+}
 
 - (void)setHidden:(BOOL)hidden {
     if (LGMaterialHasGlass((UIView *)self, kGlassKey)) hidden = YES;
     %orig(hidden);
 }
 
-- (void)setFrame:(CGRect)frame   { %orig(frame);  LGResyncGlassGeometry((UIView *)self, kGlassKey); }
-- (void)setBounds:(CGRect)bounds { %orig(bounds); LGResyncGlassGeometry((UIView *)self, kGlassKey); }
-- (void)setCenter:(CGPoint)center{ %orig(center); LGResyncGlassGeometry((UIView *)self, kGlassKey); }
+- (void)setFrame:(CGRect)frame {
+    %orig(frame);
+    LGResyncGlassGeometry((UIView *)self, kGlassKey);
+}
+
+- (void)setBounds:(CGRect)bounds {
+    %orig(bounds);
+    LGResyncGlassGeometry((UIView *)self, kGlassKey);
+}
+
+- (void)setCenter:(CGPoint)center {
+    %orig(center);
+    LGResyncGlassGeometry((UIView *)self, kGlassKey);
+}
 
 %end

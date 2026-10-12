@@ -15,7 +15,7 @@
     self.userInteractionEnabled = NO;
     self.backgroundColor = UIColor.clearColor;
     self.opaque = NO;
-    self.layer.cornerCurve = kCACornerCurveContinuous;
+    LGLayerSetContinuousCorners(self.layer);
     [self applyFilters];
     return self;
 }
@@ -23,7 +23,7 @@
 - (void)setCornerRadius:(CGFloat)cornerRadius {
     _cornerRadius = cornerRadius;
     self.layer.cornerRadius = cornerRadius;
-    self.layer.cornerCurve = kCACornerCurveContinuous;
+    LGLayerSetContinuousCorners(self.layer);
     self.layer.masksToBounds = YES;
 }
 
@@ -53,8 +53,8 @@
             layer.filters = nil;
             return;
         }
-        [layer setValue:@NO forKey:@"layerUsesCoreImageFilters"];
-        [layer setValue:@(!self.capturesAppIcon) forKey:@"windowServerAware"];
+        LGLayerSetValueIfSupported(layer, @"layerUsesCoreImageFilters", @NO);
+        LGLayerSetValueIfSupported(layer, @"windowServerAware", @(!self.capturesAppIcon));
         if (self.capturesAppIcon) {
             [layer setValue:[NSString stringWithFormat:@"dylv.liquidglass.blur.%p", self]
                      forKey:@"groupName"];
@@ -177,12 +177,12 @@ static UIImage *CreateRadialGlowImage(CGFloat diameter) {
 
     BOOL isCircular = fabs(self.bounds.size.width - self.bounds.size.height) < 1.0;
     CGFloat radius = MIN(self.bounds.size.width, self.bounds.size.height) * 0.5;
-    CALayerCornerCurve curve = isCircular ? kCACornerCurveCircular : kCACornerCurveContinuous;
+    LGCornerStyle curve = isCircular ? LGCornerStyleCircular : LGCornerStyleContinuous;
 
     self.backgroundContainer = [[UIView alloc] initWithFrame:self.bounds];
     self.backgroundContainer.clipsToBounds = NO;
     self.backgroundContainer.layer.cornerRadius = radius;
-    self.backgroundContainer.layer.cornerCurve = curve;
+    LGLayerSetCornerStyle(self.backgroundContainer.layer, curve);
     self.backgroundContainer.backgroundColor = [UIColor colorWithWhite:1.0 alpha:0.04];
     self.backgroundContainer.userInteractionEnabled = NO;
     [self addSubview:self.backgroundContainer];
@@ -198,7 +198,7 @@ static UIImage *CreateRadialGlowImage(CGFloat diameter) {
     self.blurView.qualityScale = 0.35;
     self.blurView.clipsToBounds = NO;
     self.blurView.layer.cornerRadius = radius;
-    self.blurView.layer.cornerCurve = curve;
+    LGLayerSetCornerStyle(self.blurView.layer, curve);
     self.blurView.tag = 996;
     [self.backgroundContainer addSubview:self.blurView];
 
@@ -207,7 +207,7 @@ static UIImage *CreateRadialGlowImage(CGFloat diameter) {
                                                  filterType:LGFilterTypeForHostPrefix(@"PrefsButton")];
     self.lgView.clipsToBounds = NO;
     self.lgView.layer.cornerRadius = radius;
-    self.lgView.layer.cornerCurve = curve;
+    LGLayerSetCornerStyle(self.lgView.layer, curve);
     self.lgView.tag = 998;
     [self.backgroundContainer addSubview:self.lgView];
 
@@ -215,11 +215,9 @@ static UIImage *CreateRadialGlowImage(CGFloat diameter) {
     self.darkTintView.userInteractionEnabled = NO;
     self.darkTintView.clipsToBounds = NO;
     self.darkTintView.layer.cornerRadius = radius;
-    self.darkTintView.layer.cornerCurve = curve;
-    self.darkTintView.backgroundColor = [UIColor colorWithDynamicProvider:^UIColor *(UITraitCollection *trait) {
-        return trait.userInterfaceStyle == UIUserInterfaceStyleDark
-            ? [UIColor colorWithWhite:1.0 alpha:0.06] : [UIColor colorWithWhite:1.0 alpha:0.12];
-    }];
+    LGLayerSetCornerStyle(self.darkTintView.layer, curve);
+    self.darkTintView.backgroundColor = LGDynamicColor([UIColor colorWithWhite:1.0 alpha:0.12],
+                                                       [UIColor colorWithWhite:1.0 alpha:0.06]);
     [self.backgroundContainer addSubview:self.darkTintView];
 
     CGFloat glowDiameter = MAX(self.bounds.size.width, self.bounds.size.height) * 2.2;
@@ -255,10 +253,9 @@ static UIImage *CreateRadialGlowImage(CGFloat diameter) {
     self = [super initWithFrame:frame];
     if (self) {
         [self commonInitWithBlurRadius:blurRadius];
-        UIImageSymbolConfiguration *config = [UIImageSymbolConfiguration configurationWithPointSize:21.0 weight:UIImageSymbolWeightSemibold];
-        self.glyphImageView = [[UIImageView alloc] initWithImage:[UIImage systemImageNamed:symbolName withConfiguration:config]];
+        self.glyphImageView = [[UIImageView alloc] initWithImage:LGSymbolImage(symbolName, 21.0, UIFontWeightSemibold)];
         self.glyphImageView.contentMode = UIViewContentModeCenter;
-        self.glyphImageView.tintColor = [UIColor labelColor];
+        self.glyphImageView.tintColor = LGLabelColor();
         self.glyphImageView.frame = self.bounds;
         self.glyphImageView.userInteractionEnabled = NO;
         [self addSubview:self.glyphImageView];
@@ -272,7 +269,7 @@ static UIImage *CreateRadialGlowImage(CGFloat diameter) {
         [self commonInitWithBlurRadius:blurRadius];
         self.titleLabel = [[UILabel alloc] initWithFrame:self.bounds];
         self.titleLabel.font = [UIFont systemFontOfSize:13 weight:UIFontWeightMedium];
-        self.titleLabel.textColor = [UIColor labelColor];
+        self.titleLabel.textColor = LGLabelColor();
         self.titleLabel.textAlignment = NSTextAlignmentCenter;
         self.titleLabel.text = title;
         self.titleLabel.tag = 997;
@@ -315,7 +312,7 @@ static UIImage *CreateRadialGlowImage(CGFloat diameter) {
 
     BOOL isCircular = fabs(self.bounds.size.width - self.bounds.size.height) < 1.0;
     CGFloat radius = MIN(self.bounds.size.width, self.bounds.size.height) * 0.5;
-    CALayerCornerCurve curve = isCircular ? kCACornerCurveCircular : kCACornerCurveContinuous;
+    LGCornerStyle curve = isCircular ? LGCornerStyleCircular : LGCornerStyleContinuous;
 
     if (self.backgroundContainer && !CGSizeEqualToSize(self.backgroundContainer.bounds.size, self.bounds.size)) {
         self.backgroundContainer.frame = self.bounds;
@@ -325,13 +322,13 @@ static UIImage *CreateRadialGlowImage(CGFloat diameter) {
         self.specularRimLayer.frame = self.backgroundContainer.bounds;
 
         self.backgroundContainer.layer.cornerRadius = radius;
-        self.backgroundContainer.layer.cornerCurve = curve;
+        LGLayerSetCornerStyle(self.backgroundContainer.layer, curve);
         self.blurView.layer.cornerRadius = radius;
-        self.blurView.layer.cornerCurve = curve;
+        LGLayerSetCornerStyle(self.blurView.layer, curve);
         self.lgView.layer.cornerRadius = radius;
-        self.lgView.layer.cornerCurve = curve;
+        LGLayerSetCornerStyle(self.lgView.layer, curve);
         self.darkTintView.layer.cornerRadius = radius;
-        self.darkTintView.layer.cornerCurve = curve;
+        LGLayerSetCornerStyle(self.darkTintView.layer, curve);
     }
 
     UIBezierPath *path = isCircular ?
@@ -454,28 +451,27 @@ static void LGDumpButtonHierarchy(UIView *view) {
     self.innerGlowView.center = CGPointMake(cx + dx, cy + dy);
 }
 
-- (void)setPrimaryMenu:(UIMenu *)menu {
-    _primaryMenu = menu;
-    if (menu) {
-        if (!self.menuAnchorButton) {
-            self.menuAnchorButton = [UIButton buttonWithType:UIButtonTypeCustom];
-            self.menuAnchorButton.frame = self.bounds;
-            self.menuAnchorButton.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-            self.menuAnchorButton.backgroundColor = [UIColor clearColor];
-            self.menuAnchorButton.clipsToBounds = NO;
-            self.menuAnchorButton.layer.masksToBounds = NO;
-            [self.menuAnchorButton addTarget:self action:@selector(lg_menuButtonTouchDown) forControlEvents:UIControlEventTouchDown];
-            [self.menuAnchorButton addTarget:self action:@selector(lg_menuButtonTouchUp) forControlEvents:UIControlEventTouchUpInside | UIControlEventTouchUpOutside | UIControlEventTouchCancel];
-            [self.menuAnchorButton addTarget:self action:@selector(lg_menuButtonTouchMoved:forEvent:) forControlEvents:UIControlEventTouchDragInside | UIControlEventTouchDragOutside];
-            [self addSubview:self.menuAnchorButton];
-            [self bringSubviewToFront:self.menuAnchorButton];
-        }
-        self.menuAnchorButton.menu = menu;
-        self.menuAnchorButton.showsMenuAsPrimaryAction = YES;
-    } else {
+- (void)setMenuItems:(NSArray<LGMenuItem *> *)menuItems {
+    _menuItems = [menuItems copy];
+    if (!_menuItems.count || !LGNativeButtonMenusAvailable()) {
         [self.menuAnchorButton removeFromSuperview];
         self.menuAnchorButton = nil;
+        return;
     }
+    if (!self.menuAnchorButton) {
+        self.menuAnchorButton = [UIButton buttonWithType:UIButtonTypeCustom];
+        self.menuAnchorButton.frame = self.bounds;
+        self.menuAnchorButton.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+        self.menuAnchorButton.backgroundColor = [UIColor clearColor];
+        self.menuAnchorButton.clipsToBounds = NO;
+        self.menuAnchorButton.layer.masksToBounds = NO;
+        [self.menuAnchorButton addTarget:self action:@selector(lg_menuButtonTouchDown) forControlEvents:UIControlEventTouchDown];
+        [self.menuAnchorButton addTarget:self action:@selector(lg_menuButtonTouchUp) forControlEvents:UIControlEventTouchUpInside | UIControlEventTouchUpOutside | UIControlEventTouchCancel];
+        [self.menuAnchorButton addTarget:self action:@selector(lg_menuButtonTouchMoved:forEvent:) forControlEvents:UIControlEventTouchDragInside | UIControlEventTouchDragOutside];
+        [self addSubview:self.menuAnchorButton];
+        [self bringSubviewToFront:self.menuAnchorButton];
+    }
+    LGButtonSetMenuItems(self.menuAnchorButton, _menuItems);
 }
 
 - (void)lg_menuButtonTouchDown {
@@ -500,11 +496,19 @@ static void LGDumpButtonHierarchy(UIView *view) {
 }
 
 - (void)presentMenu {
-    if (!self.primaryMenu) return;
-    if (self.menuAnchorButton && self.menuAnchorButton.contextMenuInteraction && [self.menuAnchorButton.contextMenuInteraction respondsToSelector:@selector(_presentMenuAtLocation:)]) {
-        CGPoint center = CGPointMake(CGRectGetMidX(self.menuAnchorButton.bounds), CGRectGetMidY(self.menuAnchorButton.bounds));
-        ((void (*)(id, SEL, CGPoint))objc_msgSend)(self.menuAnchorButton.contextMenuInteraction, @selector(_presentMenuAtLocation:), center);
+    if (!self.menuItems.count) return;
+    if (self.menuAnchorButton) {
+        if (@available(iOS 14.0, *)) {
+            UIContextMenuInteraction *interaction = self.menuAnchorButton.contextMenuInteraction;
+            SEL presentSelector = NSSelectorFromString(@"_presentMenuAtLocation:");
+            if ([interaction respondsToSelector:presentSelector]) {
+                CGPoint center = CGPointMake(CGRectGetMidX(self.menuAnchorButton.bounds), CGRectGetMidY(self.menuAnchorButton.bounds));
+                ((void (*)(id, SEL, CGPoint))objc_msgSend)(interaction, presentSelector, center);
+                return;
+            }
+        }
     }
+    LGPresentMenu(self, nil, self.menuItems);
 }
 
 - (BOOL)beginTrackingWithTouch:(UITouch *)touch withEvent:(UIEvent *)event {
@@ -531,7 +535,7 @@ static void LGDumpButtonHierarchy(UIView *view) {
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.06 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
             if (self.actionHandler) {
                 self.actionHandler();
-            } else if (self.primaryMenu) {
+            } else if (self.menuItems.count) {
                 [self presentMenu];
             } else {
                 [self sendActionsForControlEvents:UIControlEventTouchUpInside];
@@ -568,6 +572,10 @@ static void LGDumpButtonHierarchy(UIView *view) {
 
     if (@available(iOS 13.0, *)) {
         UIImpactFeedbackGenerator *feedback = [[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleSoft];
+        [feedback prepare];
+        [feedback impactOccurred];
+    } else {
+        UIImpactFeedbackGenerator *feedback = [[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleLight];
         [feedback prepare];
         [feedback impactOccurred];
     }

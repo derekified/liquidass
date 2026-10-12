@@ -297,8 +297,8 @@ static void LG_showSafeModeAlertIfNeeded(void) {
         });
     }
 
-    UIViewController *root = nil;
-    UIWindow *window = nil;
+    NSMutableArray<NSArray<UIWindow *> *> *windowGroups = [NSMutableArray array];
+    NSMutableArray<NSString *> *groupNames = [NSMutableArray array];
     if (@available(iOS 13.0, *)) {
         for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
             LG_safeModeAlertLog(@"scene=%@ class=%@ state=%ld",
@@ -307,33 +307,42 @@ static void LG_showSafeModeAlertIfNeeded(void) {
                                 (long)scene.activationState);
             if (![scene isKindOfClass:UIWindowScene.class]) continue;
             if (scene.activationState != UISceneActivationStateForegroundActive) continue;
-            UIWindowScene *windowScene = (UIWindowScene *)scene;
-            UIWindow *visibleKeyWindow = nil;
-            for (UIWindow *candidate in windowScene.windows) {
-                NSString *className = NSStringFromClass(candidate.class);
-                LG_safeModeAlertLog(@"window scene=%@ class=%@ level=%.1f hidden=%d alpha=%.2f key=%d frame=%@",
-                                    scene.session.persistentIdentifier, className,
-                                    candidate.windowLevel, candidate.hidden, candidate.alpha,
-                                    candidate.isKeyWindow, NSStringFromCGRect(candidate.frame));
-                if (candidate.hidden || candidate.alpha <= 0.0 ||
-                    !candidate.rootViewController) continue;
-                if (candidate.isKeyWindow) visibleKeyWindow = candidate;
-                if (![className containsString:@"SBCoverSheetWindow"]) continue;
-                LG_safeModeAlertLog(@"selected coversheet scene=%@ window=%@",
-                                    scene.session.persistentIdentifier, candidate);
-                window = candidate;
-                root = LG_topPresentedController(candidate.rootViewController);
-                break;
-            }
-            if (!window && visibleKeyWindow) {
-                LG_safeModeAlertLog(@"selected visible key window scene=%@ class=%@ window=%@",
-                                    scene.session.persistentIdentifier,
-                                    NSStringFromClass(visibleKeyWindow.class),
-                                    visibleKeyWindow);
-                window = visibleKeyWindow;
-                root = LG_topPresentedController(visibleKeyWindow.rootViewController);
-            }
-            if (window) break;
+            [windowGroups addObject:((UIWindowScene *)scene).windows ?: @[]];
+            [groupNames addObject:scene.session.persistentIdentifier ?: @"scene"];
+        }
+    } else {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+        [windowGroups addObject:UIApplication.sharedApplication.windows ?: @[]];
+#pragma clang diagnostic pop
+        [groupNames addObject:@"application"];
+    }
+
+    UIViewController *root = nil;
+    UIWindow *window = nil;
+    for (NSUInteger groupIndex = 0; groupIndex < windowGroups.count && !window; groupIndex++) {
+        NSString *groupName = groupNames[groupIndex];
+        UIWindow *visibleKeyWindow = nil;
+        for (UIWindow *candidate in windowGroups[groupIndex]) {
+            NSString *className = NSStringFromClass(candidate.class);
+            LG_safeModeAlertLog(@"window group=%@ class=%@ level=%.1f hidden=%d alpha=%.2f key=%d frame=%@",
+                                groupName, className,
+                                candidate.windowLevel, candidate.hidden, candidate.alpha,
+                                candidate.isKeyWindow, NSStringFromCGRect(candidate.frame));
+            if (candidate.hidden || candidate.alpha <= 0.0 ||
+                !candidate.rootViewController) continue;
+            if (candidate.isKeyWindow) visibleKeyWindow = candidate;
+            if (![className containsString:@"SBCoverSheetWindow"]) continue;
+            LG_safeModeAlertLog(@"selected coversheet group=%@ window=%@", groupName, candidate);
+            window = candidate;
+            root = LG_topPresentedController(candidate.rootViewController);
+            break;
+        }
+        if (!window && visibleKeyWindow) {
+            LG_safeModeAlertLog(@"selected visible key window group=%@ class=%@ window=%@",
+                                groupName, NSStringFromClass(visibleKeyWindow.class), visibleKeyWindow);
+            window = visibleKeyWindow;
+            root = LG_topPresentedController(visibleKeyWindow.rootViewController);
         }
     }
     if (!window) {
@@ -343,8 +352,8 @@ static void LG_showSafeModeAlertIfNeeded(void) {
         return;
     }
     sLGSafeModeAlertWindow = window;
-    LG_safeModeAlertLog(@"presentation host scene=%@ level=%.1f hidden=%d key=%d root=%@ frame=%@",
-                        window.windowScene.session.persistentIdentifier,
+    LG_safeModeAlertLog(@"presentation host class=%@ level=%.1f hidden=%d key=%d root=%@ frame=%@",
+                        NSStringFromClass(window.class),
                         window.windowLevel, window.hidden, window.isKeyWindow,
                         root,
                         NSStringFromCGRect(window.frame));

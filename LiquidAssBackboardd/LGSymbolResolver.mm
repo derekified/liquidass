@@ -303,21 +303,23 @@ static void *matchAddFilterCallAt(uint32_t *p, uint32_t *limit, void **outCtx,
     return nullptr;
 }
 
-static void scanGaussianSite(void) {
-    // atom values move between builds so find the registration cluster
-    if (g_gaussianSiteScanned) return;
-    g_gaussianSiteScanned = true;
-    if (!g_inited) return;
+static bool gaussianCtxLooksValid(void *ctx) {
+    if (!LGSymAddressInQuartzCoreImage(ctx)) return false;
+    void *vtable = LGSymStripData(*(void **)ctx);
+    if (!LGSymAddressInQuartzCoreImage(vtable)) return false;
+    void *first = LGSymStripCode(*(void **)vtable);
+    return first >= (void *)g_qcTextBase && first < (void *)(g_qcTextBase + g_qcTextSize);
+}
 
+// ios 12 registers only page curl, gaussian and lanczos so short clusters need extra proof
+static bool scanGaussianClusters(int kMinClusterLen, bool strict) {
     uint32_t *base  = (uint32_t *)g_qcTextBase;
     uint32_t *limit = (uint32_t *)(g_qcTextBase + g_qcTextSize) - 8;
 
     // constructor time cannot safely intern atoms so gaussian stays positional
     uint32_t gaussAtom = 0;
-    rlog("scanGaussianSite: using built-in cluster position (constructor-safe)");
 
     const ptrdiff_t kMaxClusterGap = 0x40 / 4;
-    const int kMinClusterLen = 4;
 
     for (uint32_t *p = base + 2; p < limit; p++) {
         void *firstCtx = nullptr; uint32_t firstAtom = 0;
@@ -380,6 +382,12 @@ static void scanGaussianSite(void) {
             }
         }
 
+        if (strict && (matchCount != kMinClusterLen || !filterTableSlot ||
+                       !gaussianCtxLooksValid(gaussianCtx))) {
+            p = matchAddrs[matchCount - 1];
+            continue;
+        }
+
         g_gaussianSite.addFilterAddr   = firstTarget;
         g_gaussianSite.gaussianCtxPtr  = gaussianCtx;
         g_gaussianSite.filterTableSlot = filterTableSlot;
@@ -390,8 +398,20 @@ static void scanGaussianSite(void) {
         rlog("  add_filter = %p", firstTarget);
         rlog("  gaussian ctx = %p", gaussianCtx);
         rlog("  filter_table slot = %p", filterTableSlot);
-        return;
+        return true;
     }
+    return false;
+}
+
+static void scanGaussianSite(void) {
+    // atom values move between builds so find the registration cluster
+    if (g_gaussianSiteScanned) return;
+    g_gaussianSiteScanned = true;
+    if (!g_inited) return;
+
+    rlog("scanGaussianSite: using built-in cluster position (constructor-safe)");
+    if (scanGaussianClusters(4, false)) return;
+    if (scanGaussianClusters(3, true)) return;
     rlog("scanGaussianSite: no confirmed add_filter cluster found");
 }
 
@@ -410,24 +430,55 @@ void **LGResolve_FilterTableSlot(void) {
     return (void **)g_gaussianSite.filterTableSlot;
 }
 
-void *LGResolve_StopEncoders(void) {
-    // the assertion string anchors the private metal context method
+static uint8_t *findWholeCString(const char *str) {
     if (!g_inited) return nullptr;
+    size_t len = strlen(str) + 1;
+    uint8_t *p = g_qcTextBase;
+    uint8_t *end = g_qcTextBase + g_qcTextSize;
+    while (p < end) {
+        uint8_t *hit = rawScan((const uint8_t *)str, len, p, end - p);
+        if (!hit) return nullptr;
+        if (hit == g_qcTextBase || hit[-1] == 0) return hit;
+        p = hit + 1;
+    }
+    return nullptr;
+}
 
-    uint8_t *strLoc = findCString("!memoryless_in_use ()");
-    if (!strLoc) { rlog("stop_encoders: anchor string not found"); return nullptr; }
-    rlog("stop_encoders: anchor string at %p", strLoc);
+struct LGStringAnchor {
+    const char *text;
+    bool wholeString;
+};
 
+static void *findAnchorXref(const char *tag, const LGStringAnchor *anchors, size_t count) {
     uint32_t *base = (uint32_t *)g_qcTextBase;
     uint32_t *end  = (uint32_t *)(g_qcTextBase + g_qcTextSize) - 1;
-    void *xrefSite = nullptr;
-    for (uint32_t *p = base; p < end; p++) {
-        if (!isADRP(*p) || !isADD_imm(p[1])) continue;
-        void *decoded = LGSymDecodeAdrpAdd((void *)p);
-        if (decoded == (void *)strLoc) { xrefSite = (void *)p; break; }
+    for (size_t a = 0; a < count; a++) {
+        const char *text = anchors[a].text;
+        uint8_t *strLoc = anchors[a].wholeString ? findWholeCString(text) : findCString(text);
+        if (!strLoc) { rlog("%s: anchor \"%s\" not found", tag, text); continue; }
+        for (uint32_t *p = base; p < end; p++) {
+            if (!isADRP(*p) || !isADD_imm(p[1])) continue;
+            if (LGSymDecodeAdrpAdd((void *)p) == (void *)strLoc) {
+                rlog("%s: anchor \"%s\" at %p xref %p", tag, text, strLoc, p);
+                return (void *)p;
+            }
+        }
+        rlog("%s: no xref to anchor \"%s\"", tag, text);
     }
-    if (!xrefSite) { rlog("stop_encoders: no xref to anchor string found"); return nullptr; }
-    rlog("stop_encoders: xref site at %p", xrefSite);
+    return nullptr;
+}
+
+void *LGResolve_StopEncoders(void) {
+    // the assertion strings anchor the private metal context method
+    if (!g_inited) return nullptr;
+
+    // ios 12 asserts on the memoryless mask and only exposes the function name
+    static const LGStringAnchor kAnchors[] = {
+        { "!memoryless_in_use ()", false },
+        { "stop_encoders", true },
+    };
+    void *xrefSite = findAnchorXref("stop_encoders", kAnchors, 2);
+    if (!xrefSite) return nullptr;
 
     uint8_t *fnStart = nullptr;
     {
@@ -454,19 +505,13 @@ ptrdiff_t LGResolve_MetalCmdBufOffset(void) {
     // track this through register moves instead of hardcoding an ios offset
     if (!g_inited) return -1;
 
-    uint8_t *strLoc = findCString("Command buffer allocation failed!\n");
-    if (!strLoc) { rlog("cmdbuf: anchor string not found"); return -1; }
-    rlog("cmdbuf: anchor string at %p", strLoc);
-
-    uint32_t *base = (uint32_t *)g_qcTextBase;
-    uint32_t *end  = (uint32_t *)(g_qcTextBase + g_qcTextSize) - 1;
-    void *xrefSite = nullptr;
-    for (uint32_t *p = base; p < end; p++) {
-        if (!isADRP(*p) || !isADD_imm(p[1])) continue;
-        if (LGSymDecodeAdrpAdd((void *)p) == (void *)strLoc) { xrefSite = (void *)p; break; }
-    }
-    if (!xrefSite) { rlog("cmdbuf: no xref to anchor string found"); return -1; }
-    rlog("cmdbuf: xref site at %p", xrefSite);
+    static const LGStringAnchor kAnchors[] = {
+        { "Command buffer allocation failed!\n", false },
+        { "CoreAnimation: command buffer allocation failed!\n", false },
+    };
+    void *xrefSite = findAnchorXref("cmdbuf", kAnchors, 2);
+    if (!xrefSite) return -1;
+    uint32_t *end = (uint32_t *)(g_qcTextBase + g_qcTextSize) - 1;
 
     uint8_t *fnStart = nullptr;
     {
@@ -510,9 +555,38 @@ ptrdiff_t LGResolve_MetalCmdBufOffset(void) {
     return -1;
 }
 
+static int populatedVtableSlots(void * const *vtable, int maxSlots) {
+    // ios 12 vtables are shorter than the copy window and end in null slots
+    int n = 0;
+    while (n < maxSlots && vtable[n]) n++;
+    return n;
+}
+
+static int directBranchForwarderSlot(void * const *vtable, int maxSlots) {
+    // ios 12 zeroes the extra render arguments and tail branches to the full render
+    for (int i = 0; i + 1 < maxSlots; i++) {
+        uint32_t *fn = (uint32_t *)LGSymStripCode(vtable[i]);
+        uint32_t *next = (uint32_t *)LGSymStripCode(vtable[i + 1]);
+        if (!fn || !LGSymAddressInQuartzCoreImage((void *)fn)) continue;
+        for (int k = 0; k < 8; k++) {
+            uint32_t ins = fn[k];
+            if (ins == 0xD65F03C0u || isSTP_preindex_SP_neg(ins) || isSUBsp(ins)) break;
+            if ((ins & 0xFC000000u) != 0x14000000u) continue;
+            int32_t off = (int32_t)((ins & 0x03FFFFFFu) << 6) >> 4;
+            if ((uint8_t *)(fn + k) + off == (uint8_t *)next) {
+                rlog("render-slot: direct forwarder at vtable[%d] -> render vtable[%d]", i, i + 1);
+                return i + 1;
+            }
+            break;
+        }
+    }
+    return -1;
+}
+
 int LGResolve_RenderVtableSlot(void * const *vtable, int maxSlots) {
     // quartzcore uses plain and pac forwarders to reach the render slot
     if (!vtable) return -1;
+    maxSlots = populatedVtableSlots(vtable, maxSlots);
 
     for (int i = 0; i + 1 < maxSlots; i++) {
 
@@ -561,6 +635,8 @@ int LGResolve_RenderVtableSlot(void * const *vtable, int maxSlots) {
             }
         }
     }
+    int direct = directBranchForwarderSlot(vtable, maxSlots);
+    if (direct >= 0) return direct;
     rlog("render-slot: render forwarder not found (checked %d slots)", maxSlots);
     return -1;
 }
@@ -568,6 +644,7 @@ int LGResolve_RenderVtableSlot(void * const *vtable, int maxSlots) {
 int LGResolve_EdgeInfoVtableSlot(void * const *vtable, int maxSlots) {
     // identify edge info by its argument saves and two output writes
     if (!vtable) return -1;
+    maxSlots = populatedVtableSlots(vtable, maxSlots);
 
     for (int i = 0; i < maxSlots; i++) {
         uint32_t *fn = (uint32_t *)LGSymStripCode(vtable[i]);
@@ -575,16 +652,21 @@ int LGResolve_EdgeInfoVtableSlot(void * const *vtable, int maxSlots) {
 
         bool savesEdge = false;
         bool savesFlag = false;
-        bool writesEdge = false;
+        bool writesEdgePair = false;
+        bool writesEdgeX = false;
+        bool writesEdgeY = false;
         bool writesFlag = false;
         for (int k = 0; k < 80; k++) {
             uint32_t ins = fn[k];
             if (ins == 0xAA0503F7u) savesEdge = true;
             if (ins == 0xAA0603F4u) savesFlag = true;
-            if (ins == 0x2D0002E1u) writesEdge = true;
+            if (ins == 0x2D0002E1u) writesEdgePair = true;
+            if (ins == 0xBD0002E1u) writesEdgeX = true;
+            if (ins == 0xBD0006E0u) writesEdgeY = true;
             if (ins == 0x39000288u) writesFlag = true;
             if (ins == 0xD65F03C0u || ins == 0xD65F0FFFu) break;
         }
+        bool writesEdge = writesEdgePair || (writesEdgeX && writesEdgeY);
         if (savesEdge && savesFlag && writesEdge && writesFlag) {
             rlog("edge-info-slot: Gaussian get_edge_info at vtable[%d]", i);
             return i;

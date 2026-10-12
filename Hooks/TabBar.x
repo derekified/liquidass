@@ -1,4 +1,5 @@
 #import <UIKit/UIKit.h>
+#import "../Shared/LGCompat.h"
 #import <QuartzCore/QuartzCore.h>
 #import <objc/message.h>
 #import <objc/runtime.h>
@@ -64,9 +65,7 @@ static const void *kLGTabBarVibranceKey = &kLGTabBarVibranceKey;
         self.backgroundColor = [UIColor clearColor];
         self.opaque = NO;
         self.clipsToBounds = YES;
-        if (@available(iOS 13.0, *)) {
-            self.layer.cornerCurve = kCACornerCurveContinuous;
-        }
+        LGLayerSetContinuousCorners(self.layer);
         self.layer.cornerRadius = frame.size.height * 0.5;
         self.layer.masksToBounds = YES;
         [self applyFilters];
@@ -762,9 +761,7 @@ static UIView *LGTabBarBlueOverlay(UITabBar *bar, BOOL create) {
     overlay.clipsToBounds = YES;
     overlay.hidden = YES;
     overlay.alpha = 0.0;
-    if (@available(iOS 13.0, *)) {
-        overlay.layer.cornerCurve = kCACornerCurveContinuous;
-    }
+    LGLayerSetContinuousCorners(overlay.layer);
     overlay.layer.cornerRadius = CGRectGetHeight(pillFrame) * 0.5;
 
     UIView *blueContent = [[UIView alloc] initWithFrame:overlay.bounds];
@@ -776,9 +773,7 @@ static UIView *LGTabBarBlueOverlay(UITabBar *bar, BOOL create) {
 
     UIView *lensMask = [[UIView alloc] initWithFrame:CGRectZero];
     lensMask.backgroundColor = UIColor.whiteColor;
-    if (@available(iOS 13.0, *)) {
-        lensMask.layer.cornerCurve = kCACornerCurveContinuous;
-    }
+    LGLayerSetContinuousCorners(lensMask.layer);
     overlay.maskView = lensMask;
 
     [bar addSubview:overlay];
@@ -1116,7 +1111,7 @@ static void LGStyleStockTabBar(UITabBar *bar) {
     }
     if (glass && fabs(glass.layer.cornerRadius - height * 0.5) > 0.01)
         glass.layer.cornerRadius = height * 0.5;
-    if (@available(iOS 13.0, *)) glass.layer.cornerCurve = kCACornerCurveContinuous;
+    LGLayerSetContinuousCorners(glass.layer);
     glass.layer.masksToBounds = YES;
 
     NSArray<UIView *> *buttons = LGStockTabBarButtons(bar);
@@ -1127,9 +1122,7 @@ static void LGStyleStockTabBar(UITabBar *bar) {
             highlight = [[UIView alloc] initWithFrame:CGRectZero];
             highlight.userInteractionEnabled = NO;
             highlight.layer.masksToBounds = YES;
-            if (@available(iOS 13.0, *)) {
-                highlight.layer.cornerCurve = kCACornerCurveContinuous;
-            }
+            LGLayerSetContinuousCorners(highlight.layer);
             if (glass) [bar insertSubview:highlight aboveSubview:glass];
             else [bar insertSubview:highlight atIndex:0];
             objc_setAssociatedObject(bar, kLGTabBarSelectedHighlightKey,
@@ -1254,7 +1247,7 @@ static LGLiveBackdropView *LGTabBarSelectionLens(UITabBar *bar) {
     lens.alpha = 0.0;
     lens.lgSpecularEnabledOverride = @NO;
     lens.layer.masksToBounds = NO;
-    if (@available(iOS 13.0, *)) lens.layer.cornerCurve = kCACornerCurveContinuous;
+    LGLayerSetContinuousCorners(lens.layer);
 
     LGLiveBackdropView *base = objc_getAssociatedObject(bar, kLGTabBarGlassKey);
     if (base) [bar insertSubview:lens aboveSubview:base];
@@ -1709,7 +1702,7 @@ static void LGAppendTabBarViewTree(NSMutableString *output, UIView *view,
         NSStringFromCGRect(windowFrame), view.alpha, view.hidden, view.opaque,
         view.userInteractionEnabled, LGTabBarColorDescription(view.backgroundColor),
         NSStringFromClass(layer.class), layer.cornerRadius,
-        layer.cornerCurve ?: @"nil", layer.masksToBounds, maskClass,
+        LGLayerGetCornerStyle(layer) == LGCornerStyleContinuous ? @"continuous" : @"circular", layer.masksToBounds, maskClass,
         (unsigned long)view.subviews.count, (unsigned long)view.constraints.count,
         (unsigned long)view.autoresizingMask];
 
@@ -1754,6 +1747,8 @@ static void LGDumpTabBar(UITabBar *bar, NSString *reason) {
                              OBJC_ASSOCIATION_COPY_NONATOMIC);
 
     UIWindow *window = bar.window;
+    id standardAppearance = nil;
+    if (@available(iOS 13.0, *)) standardAppearance = bar.standardAppearance;
     id scrollEdgeAppearance = nil;
     if ([bar respondsToSelector:NSSelectorFromString(@"scrollEdgeAppearance")]) {
         @try { scrollEdgeAppearance = [bar valueForKey:@"scrollEdgeAppearance"]; }
@@ -1770,7 +1765,7 @@ static void LGDumpTabBar(UITabBar *bar, NSString *reason) {
         window.screen.scale, NSStringFromCGRect(bar.frame), NSStringFromCGRect(bar.bounds),
         NSStringFromUIEdgeInsets(bar.safeAreaInsets),
         NSStringFromUIEdgeInsets(bar.layoutMargins),
-        NSStringFromCGSize(bar.intrinsicContentSize), bar.standardAppearance,
+        NSStringFromCGSize(bar.intrinsicContentSize), standardAppearance,
         scrollEdgeAppearance, (unsigned long)bar.items.count, bar.selectedItem];
 
     [bar.items enumerateObjectsUsingBlock:^(UITabBarItem *item, NSUInteger index,

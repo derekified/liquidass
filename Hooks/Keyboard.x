@@ -1,4 +1,5 @@
 #import <UIKit/UIKit.h>
+#import "../Shared/LGCompat.h"
 #import <CoreText/CoreText.h>
 #import <dlfcn.h>
 #import <objc/message.h>
@@ -444,9 +445,7 @@ static void LGUpdateKeyboardGlass(UIView *stock) {
     glass.layer.masksToBounds = YES;
     glass.lgShapeCornerRadius = LGKeyboardCornerRadius();
     glass.lgShapeRect = glass.bounds;
-    if (@available(iOS 13.0, *)) {
-        glass.layer.cornerCurve = kCACornerCurveContinuous;
-    }
+    LGLayerSetContinuousCorners(glass.layer);
     LGUpdateKeyboardBorder(glass);
     glass.alpha = primary.alpha;
     glass.hidden =

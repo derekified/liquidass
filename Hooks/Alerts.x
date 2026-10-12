@@ -1,4 +1,5 @@
 #import "../Shared/LGSharedSupport.h"
+#import "../Shared/LGCompat.h"
 #import "../Shared/LGGlassKit.h"
 #import "../Shared/LGLiveBackdropView.h"
 #import <objc/runtime.h>
@@ -156,7 +157,7 @@ static void LGAlertInstallNativeGlass(UIAlertController *controller) {
     if (glass.superview != chrome) [chrome insertSubview:glass atIndex:0];
     glass.frame = chrome.bounds;
     glass.layer.cornerRadius = 35.0;
-    if (@available(iOS 13.0, *)) glass.layer.cornerCurve = kCACornerCurveContinuous;
+    LGLayerSetContinuousCorners(glass.layer);
     glass.layer.masksToBounds = YES;
     [glass applyFilters];
 
@@ -165,7 +166,7 @@ static void LGAlertInstallNativeGlass(UIAlertController *controller) {
 
 static BOOL LGAlertColorLooksRed(UIColor *color, UITraitCollection *traits) {
     if (!color) return NO;
-    UIColor *resolved = [color resolvedColorWithTraitCollection:traits];
+    UIColor *resolved = LGResolvedColor(color, traits);
     CGFloat hue = 0.0, saturation = 0.0, brightness = 0.0, alpha = 0.0;
     if ([resolved getHue:&hue saturation:&saturation brightness:&brightness alpha:&alpha])
         return saturation > 0.35 && brightness > 0.35 && (hue < 0.08 || hue > 0.92);
@@ -234,7 +235,7 @@ static void LGAlertStyleActionLabels(UIView *root, UIView *representation) {
                 : 0.0;
             label.transform = CGAffineTransformMakeTranslation(centerOffset, 0.0);
             UIColor *textColor = LGAlertActionLabelIsDestructive(label, representation)
-                ? UIColor.systemRedColor : UIColor.labelColor;
+                ? UIColor.systemRedColor : LGLabelColor();
             label.alpha = 1.0;
             label.tintAdjustmentMode = UIViewTintAdjustmentModeNormal;
             label.tintColor = textColor;
@@ -474,7 +475,7 @@ static void LGAlertStyleActionRepresentation(UIView *representation) {
     if (!background) {
         background = [[UIView alloc] initWithFrame:CGRectZero];
         background.userInteractionEnabled = NO;
-        background.layer.cornerCurve = kCACornerCurveContinuous;
+        LGLayerSetContinuousCorners(background.layer);
         [representation insertSubview:background atIndex:0];
         objc_setAssociatedObject(representation, kLGAlertActionBackgroundKey,
                                  background, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
@@ -727,7 +728,7 @@ static void LGAlertProbeHierarchy(UIAlertController *controller, NSString *reaso
 }
 
 %new
-- (void)lg_alertActionHoverChanged:(UIHoverGestureRecognizer *)gesture {
+- (void)lg_alertActionHoverChanged:(UIGestureRecognizer *)gesture {
     if (!LGAlertsEnabled() || !LGAlertViewUsesAlertStyle((UIView *)self)) return;
     CGFloat opacity = gesture.state == UIGestureRecognizerStateBegan ||
                       gesture.state == UIGestureRecognizerStateChanged
@@ -856,5 +857,8 @@ static void LGAlertProbeHierarchy(UIAlertController *controller, NSString *reaso
 
 %ctor {
     if (!LGIsSpringBoardProcess() && !LGIsPreferencesProcess()) return;
-    %init(LGAlertsSpringBoard);
+    %init(LGAlertsSpringBoard,
+          _UIInterfaceActionVibrantSeparatorView =
+              NSClassFromString(@"_UIInterfaceActionVibrantSeparatorView") ?:
+              NSClassFromString(@"_UIInterfaceActionBlendingSeparatorView"));
 }
