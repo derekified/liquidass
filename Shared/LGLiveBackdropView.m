@@ -2,6 +2,7 @@
 #import "LGHostRegistry.h"
 #import "LGCoverSheetState.h"
 #import "LGCompat.h"
+#import "LGRendererState.h"
 #import <CoreMotion/CoreMotion.h>
 #import <QuartzCore/QuartzCore.h>
 #import <objc/message.h>
@@ -69,6 +70,132 @@ static BOOL LGNeedsGaussianIdentityFallback(void) {
 
 static CFStringRef const kLGParametersReloadedNotification =
     CFSTR("dylv.liquidglass/ParametersReloaded");
+
+static uint64_t sLGRendererState = LGRendererStateUnknown;
+static BOOL sLGRendererStateLoaded;
+
+static void LGRefreshRendererState(void) {
+    uint64_t state = LGRendererStateRead();
+    if (!sLGRendererStateLoaded || state != sLGRendererState)
+        LGLog(@"[LGSB] backboardd renderer state=%llu", (unsigned long long)state);
+    sLGRendererState = state;
+    sLGRendererStateLoaded = YES;
+}
+
+static BOOL LGRendererCompositing(void) {
+    if (!sLGRendererStateLoaded) LGRefreshRendererState();
+    return sLGRendererState == LGRendererStateActive;
+}
+
+static BOOL LGHostUsesFallbackMaterial(enum LGHostIdentifier host) {
+    switch (host) {
+        case LGHostIdentifierClock:
+        case LGHostIdentifierCoverSheet:
+        case LGHostIdentifierCount:
+            return NO;
+        default:
+            return YES;
+    }
+}
+
+static BOOL LGHostIsClearVariant(enum LGHostIdentifier host) {
+    switch (host) {
+        case LGHostIdentifierPrefsSlider:
+        case LGHostIdentifierPrefsSwitch:
+        case LGHostIdentifierPrefsSegment:
+        case LGHostIdentifierTabBarSelection:
+            return YES;
+        default:
+            return NO;
+    }
+}
+
+static BOOL LGParseTintHex(id value, CGFloat rgba[4]) {
+    if (![value isKindOfClass:NSString.class]) return NO;
+    NSString *hex = [[(NSString *)value stringByTrimmingCharactersInSet:
+        NSCharacterSet.whitespaceAndNewlineCharacterSet]
+        stringByReplacingOccurrencesOfString:@"#" withString:@""];
+    if (hex.length != 6 && hex.length != 8) return NO;
+    unsigned int raw = 0;
+    if (![[NSScanner scannerWithString:hex] scanHexInt:&raw]) return NO;
+    if (hex.length == 6) raw = (raw << 8) | 0xffu;
+    rgba[0] = ((raw >> 24) & 0xff) / 255.0;
+    rgba[1] = ((raw >> 16) & 0xff) / 255.0;
+    rgba[2] = ((raw >> 8) & 0xff) / 255.0;
+    rgba[3] = (raw & 0xff) / 255.0;
+    return YES;
+}
+
+@interface LGFallbackMaterialView : UIView
+- (void)lgApplyBlurRadius:(CGFloat)radius saturation:(CGFloat)saturation tint:(UIColor *)tint;
+@end
+
+@implementation LGFallbackMaterialView {
+    CALayer *_tintLayer;
+    CGFloat _radius;
+    CGFloat _saturation;
+}
+
++ (Class)layerClass { return NSClassFromString(@"CABackdropLayer") ?: CALayer.class; }
+
+- (instancetype)initWithFrame:(CGRect)frame {
+    self = [super initWithFrame:frame];
+    if (!self) return nil;
+    self.userInteractionEnabled = NO;
+    self.backgroundColor = UIColor.clearColor;
+    self.opaque = NO;
+    self.clipsToBounds = YES;
+    _radius = -1.0;
+    _tintLayer = [CALayer layer];
+    [self.layer addSublayer:_tintLayer];
+    Class backdrop = NSClassFromString(@"CABackdropLayer");
+    if (backdrop && [self.layer isKindOfClass:backdrop]) {
+        LGLayerSetValueIfSupported(self.layer, @"layerUsesCoreImageFilters", @NO);
+        LGLayerSetValueIfSupported(self.layer, @"windowServerAware", @YES);
+        LGLayerSetValueIfSupported(self.layer, @"groupName", NSUUID.UUID.UUIDString);
+    }
+    return self;
+}
+
+- (void)layoutSubviews {
+    [super layoutSubviews];
+    [CATransaction begin];
+    [CATransaction setDisableActions:YES];
+    _tintLayer.frame = self.bounds;
+    [CATransaction commit];
+}
+
+- (void)lgApplyBlurRadius:(CGFloat)radius saturation:(CGFloat)saturation tint:(UIColor *)tint {
+    [CATransaction begin];
+    [CATransaction setDisableActions:YES];
+    _tintLayer.frame = self.bounds;
+    _tintLayer.backgroundColor = tint.CGColor;
+    [CATransaction commit];
+    if (fabs(_radius - radius) < 0.01 && fabs(_saturation - saturation) < 0.01) return;
+    _radius = radius;
+    _saturation = saturation;
+    Class backdrop = NSClassFromString(@"CABackdropLayer");
+    Class filterClass = NSClassFromString(@"CAFilter");
+    SEL filterWithName = NSSelectorFromString(@"filterWithName:");
+    if (!backdrop || ![self.layer isKindOfClass:backdrop] ||
+        ![filterClass respondsToSelector:filterWithName]) return;
+    NSMutableArray *filters = [NSMutableArray arrayWithCapacity:2];
+    @try {
+        if (radius > 0.0) {
+            id blur = ((id (*)(Class, SEL, NSString *))objc_msgSend)(filterClass, filterWithName, @"gaussianBlur");
+            [blur setValue:@(radius) forKey:@"inputRadius"];
+            [blur setValue:@YES forKey:@"inputNormalizeEdges"];
+            if (blur) [filters addObject:blur];
+        }
+        if (fabs(saturation - 1.0) > 0.01) {
+            id saturate = ((id (*)(Class, SEL, NSString *))objc_msgSend)(filterClass, filterWithName, @"colorSaturate");
+            [saturate setValue:@(saturation) forKey:@"inputAmount"];
+            if (saturate) [filters addObject:saturate];
+        }
+        self.layer.filters = filters.count ? filters : nil;
+    } @catch (__unused NSException *exception) {}
+}
+@end
 static NSHashTable<LGLiveBackdropView *> *sLGAllGlasses;
 static BOOL sLGFilterRefreshSetup;
 static BOOL LGSpecularEnabledForFilterType(NSString *type) {
@@ -201,6 +328,7 @@ static void LGParametersReloaded(CFNotificationCenterRef center, void *observer,
 
         // clear cached prefs before rebuilding every live filter
         LGInvalidateGlassPreferenceCache();
+        LGRefreshRendererState();
         NSArray<LGLiveBackdropView *> *glasses = sLGAllGlasses.allObjects;
         LGLog(@"render parameters ready; refreshing %lu live filters",
               (unsigned long)glasses.count);
@@ -221,6 +349,14 @@ static void LGEnsureFilterRefreshObserver(void) {
                                     LGParametersReloaded,
                                     kLGParametersReloadedNotification, NULL,
                                     CFNotificationSuspensionBehaviorDeliverImmediately);
+    [NSNotificationCenter.defaultCenter
+        addObserverForName:UIAccessibilityReduceTransparencyStatusDidChangeNotification
+                    object:nil queue:NSOperationQueue.mainQueue
+                usingBlock:^(__unused NSNotification *note) {
+        for (LGLiveBackdropView *glass in sLGAllGlasses.allObjects) {
+            [glass reapplyFilterForParameterReload];
+        }
+    }];
 }
 
 static void LGApplyMotionHighlightAngle(void) {
@@ -340,6 +476,7 @@ static const CGFloat kLGGlassEdgeWidth = 1.0;
     CAShapeLayer    *_specularMask;
     CAShapeLayer    *_edge;
     UIView          *_nativeBlurView;
+    LGFallbackMaterialView *_fallbackMaterialView;
     CGFloat          _nativeBlurRadius;
     BOOL             _backdropConfigured;
     BOOL             _filterAttached;
@@ -478,6 +615,61 @@ static const CGFloat kLGGlassEdgeWidth = 1.0;
         _nativeBlurRadius = radius;
     }
     [CATransaction commit];
+}
+
+- (UIColor *)lgFallbackTintForHost:(const LGHostDefinition *)host clear:(BOOL)clear {
+    BOOL dark = self.traitCollection.userInterfaceStyle == UIUserInterfaceStyleDark;
+    CGFloat rgba[4] = { dark ? 0.0 : 1.0, dark ? 0.0 : 1.0, dark ? 0.0 : 1.0, 0.0 };
+    NSString *prefix = [NSString stringWithUTF8String:host->preferencePrefix];
+    id configured = LGGlassPreferenceValue([prefix stringByAppendingString:
+        dark ? @".DarkTintColor" : @".LightTintColor"]);
+    if (!LGParseTintHex(configured, rgba))
+        LGParseTintHex([NSString stringWithUTF8String:dark ? host->darkTintHex : host->lightTintHex], rgba);
+    if (rgba[3] <= 0.001) {
+        rgba[0] = rgba[1] = rgba[2] = dark ? 0.0 : 1.0;
+    }
+    if (UIAccessibilityIsReduceTransparencyEnabled()) {
+        if (rgba[3] < 0.5) rgba[0] = rgba[1] = rgba[2] = dark ? 0.11 : 0.96;
+        rgba[3] = 1.0;
+    } else if (!clear) {
+        CGFloat floor = dark ? 0.28 : 0.30;
+        CGFloat area = CGRectGetWidth(self.bounds) * CGRectGetHeight(self.bounds);
+        if (area > 40000.0) floor += 0.10;
+        rgba[3] = MAX(rgba[3], floor);
+    }
+    return [UIColor colorWithRed:rgba[0] green:rgba[1] blue:rgba[2] alpha:rgba[3]];
+}
+
+- (BOOL)updateFallbackMaterial {
+    const LGHostDefinition *host = LGHostDefinitionForFilterType(
+        (_lgFilterType ?: [NSString stringWithUTF8String:kLGHostRegistry[LGHostIdentifierDefault].filterType]).UTF8String);
+    enum LGHostIdentifier identifier = LGHostIdentifierForDefinition(host);
+    BOOL wanted = host && LGHostUsesFallbackMaterial(identifier) &&
+        (UIAccessibilityIsReduceTransparencyEnabled() || !LGRendererCompositing());
+    if (!wanted || CGRectIsEmpty(self.bounds)) {
+        if (_fallbackMaterialView) {
+            [_fallbackMaterialView removeFromSuperview];
+            _fallbackMaterialView = nil;
+        }
+        return wanted;
+    }
+    BOOL clear = LGHostIsClearVariant(identifier);
+    if (!_fallbackMaterialView) {
+        _fallbackMaterialView = [[LGFallbackMaterialView alloc] initWithFrame:self.bounds];
+        [self insertSubview:_fallbackMaterialView atIndex:0];
+    }
+    BOOL hasShape = !CGRectIsNull(_lgShapeRect) && !CGRectIsEmpty(_lgShapeRect);
+    [CATransaction begin];
+    [CATransaction setDisableActions:YES];
+    _fallbackMaterialView.frame = hasShape ? _lgShapeRect : self.bounds;
+    _fallbackMaterialView.layer.cornerRadius = hasShape ? _lgShapeCornerRadius : self.layer.cornerRadius;
+    LGLayerCopyCornerStyle(_fallbackMaterialView.layer, self.layer);
+    [CATransaction commit];
+    CGFloat radius = clear ? MAX(2.0, host->blur) : MAX(22.0, LGNativeBlurRadiusForFilterType(_lgFilterType));
+    [_fallbackMaterialView lgApplyBlurRadius:radius
+                                  saturation:clear ? 1.2 : 1.8
+                                        tint:[self lgFallbackTintForHost:host clear:clear]];
+    return YES;
 }
 
 - (void)setLgShapeRect:(CGRect)rect {
@@ -640,7 +832,8 @@ static const CGFloat kLGGlassEdgeWidth = 1.0;
         NSString *wantType = [self lgEffectiveFilterType];
         NSArray *existing = layer.filters;
         Class filterCls = NSClassFromString(@"CAFilter");
-        [self updateNativeBlurOverlayWithRadius:
+        BOOL fallbackMaterial = [self updateFallbackMaterial];
+        [self updateNativeBlurOverlayWithRadius:fallbackMaterial ? 0.0 :
             LGNativeBlurRadiusForFilterType(_lgFilterType ?: wantType)];
 
         if (_filterAttached && existing.count == 1) {

@@ -24,7 +24,9 @@ static LGDockMode dockModeForMaterial(UIView *material) {
     // each dock family exposes different host geometry
     BOOL regular = hasAncestorOfClassName(material, @"SBDockView");
     BOOL floating = hasAncestorOfClassName(material, @"SBFloatingDockPlatterView");
-    BOOL exact = isExactClass(material, @"MTMaterialView");
+    BOOL exact = isExactClass(material, @"MTMaterialView") ||
+        (isExactClass(material, @"SBWallpaperEffectView") &&
+         isExactClass(material.superview, @"SBDockView"));
     BOOL stacked = dockInsideCategoryStackBackground(material);
     if (regular || floating)
         LGLog(@"[Dock] candidate class=%@ frame=%@ bounds=%@ scale=%.1f regular=%d floating=%d exact=%d stacked=%d",
@@ -99,7 +101,27 @@ static void configureDockGlass(UIView *material, LGLiveBackdropView *glass) {
           NSStringFromCGRect(glass.frame));
 }
 
+%group LGLegacyDockHooks
+
+%hook SBDockView
+
+- (void)setBackgroundAlpha:(CGFloat)alpha {
+    %orig;
+    UIView *background = nil;
+    @try { background = [(UIView *)self valueForKey:@"_backgroundView"]; } @catch (__unused NSException *e) {}
+    UIView *glass = background ? objc_getAssociatedObject(background, kGlassKey) : nil;
+    glass.alpha = alpha;
+}
+
+%end
+
+%end
+
 %ctor {
+    Class dockView = NSClassFromString(@"SBDockView");
+    if (dockView && NSProcessInfo.processInfo.operatingSystemVersion.majorVersion < 13 &&
+        class_getInstanceMethod(dockView, NSSelectorFromString(@"setBackgroundAlpha:")))
+        %init(LGLegacyDockHooks, SBDockView = dockView);
     LGRegisterMaterialHost(@"Dock", 80, ^BOOL(UIView *material) {
         return dockModeForMaterial(material) != LGDockModeNone;
     }, UIEdgeInsetsZero, ^CGFloat(__unused UIView *material) {

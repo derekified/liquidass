@@ -104,12 +104,25 @@ static void fadeInFolderIconGlasses(void) {
 
 #pragma mark - inject
 
+static CGFloat folderMaterialCornerRadius(UIView *mat) {
+    if (mat.layer.cornerRadius > 0.0) return -1.0;
+    if (isExactClass(mat, @"SBFolderIconBackgroundView"))
+        return MIN(CGRectGetWidth(mat.bounds), CGRectGetHeight(mat.bounds)) * 0.225;
+    if (isExactClass(mat, @"SBFolderBackgroundView")) {
+        NSNumber *radius = nil;
+        @try { radius = [mat valueForKey:@"_continuousCornerRadius"]; } @catch (__unused NSException *e) {}
+        if ([radius isKindOfClass:NSNumber.class] && radius.doubleValue > 0.0) return radius.doubleValue;
+    }
+    return -1.0;
+}
+
 static void injectFolderIcon(UIView *mat) {
     if (!sFolderIconMaterials) sFolderIconMaterials = [NSHashTable weakObjectsHashTable];
     [sFolderIconMaterials addObject:mat];
 
     UIView *g = LGInstallRegisteredGlassInMaterial(mat, kGlassKey, @"FolderIcon",
-                                                    UIEdgeInsetsZero, -1.0, nil);
+                                                    UIEdgeInsetsZero,
+                                                    folderMaterialCornerRadius(mat), nil);
     if (!g) return;
     if (!sFolderIconGlasses) sFolderIconGlasses = [NSHashTable weakObjectsHashTable];
     [sFolderIconGlasses addObject:g];
@@ -123,7 +136,8 @@ static void injectOpenFolder(UIView *mat) {
         return;
     }
     if (!LGInstallRegisteredGlassInMaterial(mat, kGlassKey, @"OpenFolder",
-                                            UIEdgeInsetsZero, -1.0, nil)) {
+                                            UIEdgeInsetsZero,
+                                            folderMaterialCornerRadius(mat), nil)) {
         [sOpenFolderMaterials removeObject:mat];
         if (!anyOpenFolderActive()) fadeInFolderIconGlasses();
         return;
@@ -138,10 +152,7 @@ static void injectOpenFolder(UIView *mat) {
     }
 }
 
-%hook MTMaterialView
-- (void)didMoveToWindow {
-    %orig;
-    UIView *self_ = (UIView *)self;
+static void folderMaterialDidMoveToWindow(UIView *self_) {
     if (!self_.window) {
         [sFolderIconMaterials removeObject:self_];
 
@@ -158,12 +169,67 @@ static void injectOpenFolder(UIView *mat) {
     if (isFolderIconMaterial(self_))      injectFolderIcon(self_);
     else if (isOpenFolderMaterial(self_)) injectOpenFolder(self_);
 }
-- (void)layoutSubviews {
-    %orig;
-    UIView *self_ = (UIView *)self;
+
+static void folderMaterialDidLayout(UIView *self_) {
     if (isFolderIconMaterial(self_))      injectFolderIcon(self_);
     else if (isOpenFolderMaterial(self_)) injectOpenFolder(self_);
 }
+
+%hook MTMaterialView
+- (void)didMoveToWindow {
+    %orig;
+    folderMaterialDidMoveToWindow((UIView *)self);
+}
+- (void)layoutSubviews {
+    %orig;
+    folderMaterialDidLayout((UIView *)self);
+}
+%end
+
+%group LGLegacyFolderHooks
+
+%hook SBFolderIconBackgroundView
+- (void)didMoveToWindow {
+    %orig;
+    folderMaterialDidMoveToWindow((UIView *)self);
+}
+- (void)layoutSubviews {
+    %orig;
+    folderMaterialDidLayout((UIView *)self);
+}
+- (void)setHidden:(BOOL)hidden {
+    if (LGMaterialHasGlass((UIView *)self, kGlassKey)) hidden = YES;
+    %orig(hidden);
+}
+- (void)setFrame:(CGRect)frame {
+    %orig(frame);
+    LGResyncGlassGeometry((UIView *)self, kGlassKey);
+}
+%end
+
+%hook SBFolderBackgroundView
+- (void)didMoveToWindow {
+    %orig;
+    folderMaterialDidMoveToWindow((UIView *)self);
+}
+- (void)layoutSubviews {
+    %orig;
+    folderMaterialDidLayout((UIView *)self);
+}
+- (void)setHidden:(BOOL)hidden {
+    if (LGMaterialHasGlass((UIView *)self, kGlassKey)) hidden = YES;
+    %orig(hidden);
+}
+- (void)setFrame:(CGRect)frame {
+    %orig(frame);
+    LGResyncGlassGeometry((UIView *)self, kGlassKey);
+}
+- (void)setBounds:(CGRect)bounds {
+    %orig(bounds);
+    LGResyncGlassGeometry((UIView *)self, kGlassKey);
+}
+%end
+
 %end
 
 %hook SBFolderIconImageView
@@ -200,3 +266,13 @@ static void injectOpenFolder(UIView *mat) {
 }
 
 %end
+
+%ctor {
+    %init;
+    Class iconBackground = NSClassFromString(@"SBFolderIconBackgroundView");
+    Class folderBackground = NSClassFromString(@"SBFolderBackgroundView");
+    if (iconBackground && folderBackground &&
+        NSProcessInfo.processInfo.operatingSystemVersion.majorVersion < 13)
+        %init(LGLegacyFolderHooks, SBFolderIconBackgroundView = iconBackground,
+              SBFolderBackgroundView = folderBackground);
+}

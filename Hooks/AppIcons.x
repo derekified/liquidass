@@ -15,7 +15,10 @@ static BOOL LGIsAppIconImageView(UIView *view) {
     UIView *parent = view.superview;
     UIView *grandparent = parent.superview;
     Class iconViewClass = NSClassFromString(@"SBIconView");
-    return iconViewClass && grandparent && [grandparent isKindOfClass:iconViewClass];
+    if (!iconViewClass || !parent) return NO;
+    if ([grandparent isKindOfClass:iconViewClass]) return YES;
+    return NSProcessInfo.processInfo.operatingSystemVersion.majorVersion < 13 &&
+           [parent isKindOfClass:iconViewClass];
 }
 
 static void LGRemoveAppIconGlass(UIView *iconView) {
