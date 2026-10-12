@@ -11,6 +11,7 @@
 #endif
 
 FOUNDATION_EXPORT NSString * const LGPrefsDomain;
+FOUNDATION_EXPORT NSString * const LGPrefsPlistPath;
 FOUNDATION_EXPORT CFStringRef const LGPrefsChangedNotification;
 FOUNDATION_EXPORT CFStringRef const LGPrefsRespringNotification;
 FOUNDATION_EXPORT const char * const LGPrefsChangedNotificationCString;
@@ -64,6 +65,8 @@ NSString *LG_prefString(NSString *key, NSString *fallback);
 BOOL LGHasExplicitPreferenceValue(NSString *key);
 BOOL LG_globalEnabled(void);
 void LGReloadPreferences(void);
+NSDictionary<NSString *, id> *LGCopyStoredPreferences(void);
+BOOL LGCommitPreferenceChanges(NSDictionary<NSString *, id> *values, NSSet<NSString *> *removals);
 void LGObservePreferenceChanges(dispatch_block_t block);
 
 BOOL LGDebugLoggingEnabled(void);

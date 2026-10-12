@@ -48,6 +48,7 @@ __attribute__((weak)) int __isOSVersionAtLeast(int major, int minor, int patch) 
 }
 
 NSString * const LGPrefsDomain = @"dylv.liquidassprefs";
+NSString * const LGPrefsPlistPath = @"/var/mobile/Library/Preferences/dylv.liquidassprefs.plist";
 CFStringRef const LGPrefsChangedNotification = CFSTR("dylv.liquidassprefs/Reload");
 CFStringRef const LGPrefsRespringNotification = CFSTR("dylv.liquidassprefs/Respring");
 const char * const LGPrefsChangedNotificationCString = "dylv.liquidassprefs/Reload";
@@ -182,17 +183,74 @@ static void LGAppendLogLine(NSString *line) {
     });
 }
 
-static NSDictionary<NSString *, id> *LGCopyPreferencesDictionary(void) {
+static NSDictionary<NSString *, id> *LGCopyPreferencesFromFile(void) {
+    NSData *data = [NSData dataWithContentsOfFile:LGPrefsPlistPath options:NSDataReadingUncached error:nil];
+    if (!data.length) return nil;
+    id plist = [NSPropertyListSerialization propertyListWithData:data
+                                                         options:NSPropertyListImmutable
+                                                          format:NULL
+                                                           error:nil];
+    return [plist isKindOfClass:[NSDictionary class]] ? plist : nil;
+}
+
+static NSDictionary<NSString *, id> *LGCopyPreferencesFromDaemon(void) {
     CFPreferencesAppSynchronize((__bridge CFStringRef)LGPrefsDomain);
     CFDictionaryRef values = CFPreferencesCopyMultiple(NULL,
                                                        (__bridge CFStringRef)LGPrefsDomain,
                                                        kCFPreferencesCurrentUser,
                                                        kCFPreferencesAnyHost);
     NSDictionary *dictionary = CFBridgingRelease(values);
-    if (![dictionary isKindOfClass:[NSDictionary class]]) {
-        return @{};
-    }
-    return dictionary;
+    return [dictionary isKindOfClass:[NSDictionary class]] ? dictionary : nil;
+}
+
+NSDictionary<NSString *, id> *LGCopyStoredPreferences(void) {
+    return LGCopyPreferencesFromFile() ?: LGCopyPreferencesFromDaemon() ?: @{};
+}
+
+static NSDictionary<NSString *, id> *LGCopyPreferencesDictionary(void) {
+    return LGCopyStoredPreferences();
+}
+
+BOOL LGCommitPreferenceChanges(NSDictionary<NSString *, id> *values, NSSet<NSString *> *removals) {
+    if (!values.count && !removals.count) return YES;
+    static dispatch_queue_t sCommitQueue;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        sCommitQueue = dispatch_queue_create("dylv.liquidass.prefs.commit", DISPATCH_QUEUE_SERIAL);
+    });
+
+    __block BOOL wroteFile = NO;
+    __block NSError *writeError = nil;
+    dispatch_sync(sCommitQueue, ^{
+        NSMutableDictionary<NSString *, id> *merged = [LGCopyStoredPreferences() mutableCopy];
+        [merged addEntriesFromDictionary:values ?: @{}];
+        [merged removeObjectsForKeys:removals.allObjects ?: @[]];
+
+        CFPreferencesSetMultiple((__bridge CFDictionaryRef)(values ?: @{}),
+                                 (__bridge CFArrayRef)(removals.allObjects ?: @[]),
+                                 (__bridge CFStringRef)LGPrefsDomain,
+                                 kCFPreferencesCurrentUser,
+                                 kCFPreferencesAnyHost);
+        CFPreferencesSynchronize((__bridge CFStringRef)LGPrefsDomain,
+                                 kCFPreferencesCurrentUser,
+                                 kCFPreferencesAnyHost);
+
+        NSData *data = [NSPropertyListSerialization dataWithPropertyList:merged
+                                                                  format:NSPropertyListBinaryFormat_v1_0
+                                                                 options:0
+                                                                   error:&writeError];
+        if (data) {
+            wroteFile = [data writeToFile:LGPrefsPlistPath options:NSDataWritingAtomic error:&writeError];
+        }
+    });
+
+    LGReloadPreferences();
+    CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(),
+                                         LGPrefsChangedNotification, NULL, NULL, true);
+    LGLog(@"[prefs-commit] set=%lu removed=%lu file=%d error=%@",
+          (unsigned long)values.count, (unsigned long)removals.count, wroteFile,
+          writeError.localizedDescription ?: @"none");
+    return wroteFile;
 }
 
 static void LGPreferencesChanged(CFNotificationCenterRef center,
