@@ -1,4 +1,5 @@
 #import <UIKit/UIKit.h>
+#import "../Shared/LGCompat.h"
 #import <QuartzCore/QuartzCore.h>
 #import <objc/runtime.h>
 #import <objc/message.h>
@@ -59,7 +60,7 @@ static UIImage *CreateExposureGlowImage(CGFloat diameter) {
         self.backgroundContainer.center = CGPointMake(frame.size.width / 2.0, frame.size.height / 2.0);
         self.backgroundContainer.clipsToBounds = YES;
         self.backgroundContainer.layer.cornerRadius = radius;
-        self.backgroundContainer.layer.cornerCurve = kCACornerCurveContinuous;
+        LGLayerSetContinuousCorners(self.backgroundContainer.layer);
         self.backgroundContainer.backgroundColor = [UIColor colorWithWhite:0.0 alpha:0.20];
         [self addSubview:self.backgroundContainer];
 
@@ -67,7 +68,7 @@ static UIImage *CreateExposureGlowImage(CGFloat diameter) {
         self.blurView.qualityScale = 0.75;
         self.blurView.clipsToBounds = YES;
         self.blurView.layer.cornerRadius = radius;
-        self.blurView.layer.cornerCurve = kCACornerCurveContinuous;
+        LGLayerSetContinuousCorners(self.blurView.layer);
         [self.backgroundContainer addSubview:self.blurView];
 
         self.lgView = [[LGLiveBackdropView alloc] initWithFrame:self.backgroundContainer.bounds
@@ -75,14 +76,14 @@ static UIImage *CreateExposureGlowImage(CGFloat diameter) {
                                                     filterType:@"dylv.liquidglass.assistivetouch"];
         self.lgView.clipsToBounds = YES;
         self.lgView.layer.cornerRadius = radius;
-        self.lgView.layer.cornerCurve = kCACornerCurveContinuous;
+        LGLayerSetContinuousCorners(self.lgView.layer);
         [self.backgroundContainer addSubview:self.lgView];
 
         self.darkTintView = [[UIView alloc] initWithFrame:self.backgroundContainer.bounds];
         self.darkTintView.backgroundColor = [UIColor colorWithWhite:0.0 alpha:0.35];
         self.darkTintView.clipsToBounds = YES;
         self.darkTintView.layer.cornerRadius = radius;
-        self.darkTintView.layer.cornerCurve = kCACornerCurveContinuous;
+        LGLayerSetContinuousCorners(self.darkTintView.layer);
         [self.backgroundContainer addSubview:self.darkTintView];
 
         CGFloat glowSize = frame.size.width * 1.55;
@@ -155,7 +156,7 @@ static UIImage *CreateExposureGlowImage(CGFloat diameter) {
         self.clipsToBounds = YES;
         self.alpha = 0.0;
         _baseSize = frame.size;
-        self.layer.cornerCurve = kCACornerCurveContinuous;
+        LGLayerSetContinuousCorners(self.layer);
         self.layer.masksToBounds = YES;
         [self applyFilters];
     }
@@ -231,7 +232,7 @@ static UIImage *CreateExposureGlowImage(CGFloat diameter) {
     self.bounds = newBounds;
     self.center = center;
     self.layer.cornerRadius = newRadius;
-    self.layer.cornerCurve = kCACornerCurveContinuous;
+    LGLayerSetContinuousCorners(self.layer);
     self.layer.masksToBounds = YES;
 }
 
@@ -280,7 +281,7 @@ static UIImage *CreateRadialGlowImage(CGFloat diameter) {
         self.backgroundColor = [UIColor clearColor];
         self.clipsToBounds = YES;
         self.layer.cornerRadius = 28.0;
-        self.layer.cornerCurve = kCACornerCurveContinuous;
+        LGLayerSetContinuousCorners(self.layer);
         self.layer.masksToBounds = YES;
 
         CGFloat diameter = 360.0;
@@ -296,7 +297,7 @@ static UIImage *CreateRadialGlowImage(CGFloat diameter) {
 - (void)updateLayoutWithBounds:(CGRect)bounds {
     self.frame = bounds;
     self.layer.cornerRadius = 28.0;
-    self.layer.cornerCurve = kCACornerCurveContinuous;
+    LGLayerSetContinuousCorners(self.layer);
 }
 
 - (void)handleTouchDownAtPoint:(CGPoint)pt {
@@ -753,7 +754,7 @@ static __weak HNDRocker *sCurrentActiveRocker = nil;
     if (backdrop) {
         backdrop.alpha = 1.0;
         backdrop.layer.cornerRadius = 28.0;
-        backdrop.layer.cornerCurve = kCACornerCurveContinuous;
+        LGLayerSetContinuousCorners(backdrop.layer);
         backdrop.layer.masksToBounds = YES;
 
         ASSMenuInnerGlowView *menuGlow = [self ass_menuGlowView];
@@ -817,7 +818,7 @@ static __weak HNDRocker *sCurrentActiveRocker = nil;
     UIVisualEffectView *backdrop = [self ass_backdropView];
     if (backdrop) {
         backdrop.layer.cornerRadius = radius;
-        backdrop.layer.cornerCurve = kCACornerCurveContinuous;
+        LGLayerSetContinuousCorners(backdrop.layer);
         backdrop.layer.masksToBounds = YES;
         backdrop.clipsToBounds = YES;
     }

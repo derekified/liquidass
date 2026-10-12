@@ -1,4 +1,5 @@
 #import <UIKit/UIKit.h>
+#import "../Shared/LGCompat.h"
 #import <QuartzCore/QuartzCore.h>
 #import <objc/runtime.h>
 #import "../Shared/LGLiveBackdropView.h"
@@ -49,12 +50,12 @@ static void LGUpdateRingerPillGlass(SBRingerPillView *self) {
     glass.hidden = NO;
     glass.frame = self.bounds;
     glass.layer.cornerRadius = radius;
-    if (@available(iOS 13.0, *)) glass.layer.cornerCurve = kCACornerCurveContinuous;
+    LGLayerSetContinuousCorners(glass.layer);
     glass.layer.masksToBounds = YES;
     [glass applyFilters];
 
     self.layer.cornerRadius = radius;
-    if (@available(iOS 13.0, *)) self.layer.cornerCurve = kCACornerCurveContinuous;
+    LGLayerSetContinuousCorners(self.layer);
 }
 
 %group LGPillHUDHooks

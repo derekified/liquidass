@@ -1,4 +1,5 @@
 #import <UIKit/UIKit.h>
+#import "../Shared/LGCompat.h"
 #import <math.h>
 #import "../Shared/LGLiveBackdropView.h"
 #import "../Shared/LGGlassKit.h"
@@ -50,7 +51,7 @@ static void LGInstallAppIconGlass(UIView *iconView) {
 
     CGFloat radius = CGRectGetWidth(iconView.frame) * 0.225;
     glass.layer.cornerRadius = radius;
-    if (@available(iOS 13.0, *)) glass.layer.cornerCurve = kCACornerCurveContinuous;
+    LGLayerSetContinuousCorners(glass.layer);
     glass.layer.masksToBounds = YES;
     lgTrackGlass(glass, @"AppIcons", nil);
 }

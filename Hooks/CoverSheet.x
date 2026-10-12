@@ -1,4 +1,5 @@
 #import <UIKit/UIKit.h>
+#import "../Shared/LGCompat.h"
 #import <QuartzCore/QuartzCore.h>
 #import <objc/message.h>
 #import <objc/runtime.h>
@@ -104,8 +105,7 @@ static void LGCoverSheetLogOrientation(UIView *view,
     static UIInterfaceOrientation lastInterface = UIInterfaceOrientationUnknown;
     static NSString *lastSource;
     UIDeviceOrientation device = UIDevice.currentDevice.orientation;
-    UIInterfaceOrientation interfaceOrientation =
-        view.window.windowScene.interfaceOrientation;
+    UIInterfaceOrientation interfaceOrientation = LGWindowInterfaceOrientation(view.window);
     if (resolved == lastResolved && device == lastDevice &&
         interfaceOrientation == lastInterface &&
         [source isEqualToString:lastSource]) {
@@ -167,8 +167,7 @@ static UIDeviceOrientation LGCoverSheetDeviceOrientation(UIView *view) {
         return deviceOrientation;
     }
 
-    UIInterfaceOrientation interfaceOrientation =
-        view.window.windowScene.interfaceOrientation;
+    UIInterfaceOrientation interfaceOrientation = LGWindowInterfaceOrientation(view.window);
     if (interfaceOrientation == UIInterfaceOrientationPortraitUpsideDown) {
         sLGCoverSheetLastPortraitOrientation =
             UIDeviceOrientationPortraitUpsideDown;

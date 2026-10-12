@@ -1,4 +1,5 @@
 #import <UIKit/UIKit.h>
+#import "../Shared/LGCompat.h"
 #import <QuartzCore/QuartzCore.h>
 #import "../Shared/LGLiveBackdropView.h"
 #import "../Shared/LGGlassKit.h"
@@ -164,7 +165,7 @@ static void injectPasscodeButton(UIView *button) {
     host.clipsToBounds = YES;
     CGFloat r = fmin(CGRectGetWidth(host.bounds), CGRectGetHeight(host.bounds)) * 0.5;
     host.layer.cornerRadius  = r;
-    host.layer.cornerCurve   = kCACornerCurveCircular;
+    LGLayerSetCornerStyle(host.layer, LGCornerStyleCircular);
     host.layer.masksToBounds = YES;
 
     LGLiveBackdropView *glass = objc_getAssociatedObject(host, kPCGlassKey);
@@ -180,7 +181,7 @@ static void injectPasscodeButton(UIView *button) {
     if (glass.superview != host) [host insertSubview:glass atIndex:0];
     glass.frame = host.bounds;
     glass.layer.cornerRadius  = r;
-    glass.layer.cornerCurve   = kCACornerCurveCircular;
+    LGLayerSetCornerStyle(glass.layer, LGCornerStyleCircular);
     glass.layer.masksToBounds = YES;
     [glass applyFilters];
     lgTrackGlass(glass, @"Passcode", nil);
@@ -195,7 +196,7 @@ static void injectPasscodeButton(UIView *button) {
     if (tint.superview != host) [host addSubview:tint];
     tint.frame = host.bounds;
     tint.layer.cornerRadius  = r;
-    tint.layer.cornerCurve   = kCACornerCurveCircular;
+    LGLayerSetCornerStyle(tint.layer, LGCornerStyleCircular);
     tint.layer.masksToBounds = YES;
     [host bringSubviewToFront:tint];
 

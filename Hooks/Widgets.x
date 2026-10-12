@@ -1,4 +1,5 @@
 #import <UIKit/UIKit.h>
+#import "../Shared/LGCompat.h"
 #import <QuartzCore/QuartzCore.h>
 #import "../Shared/LGLiveBackdropView.h"
 #import "../Shared/LGGlassKit.h"
@@ -104,11 +105,11 @@ static void injectWidgetGlass(UIView *container) {
     else if (container.subviews.firstObject != glass) [container sendSubviewToBack:glass];
     glass.frame = container.bounds;
     glass.layer.cornerRadius  = kWidgetCornerRadius;
-    glass.layer.cornerCurve   = kCACornerCurveContinuous;
+    LGLayerSetContinuousCorners(glass.layer);
     glass.layer.masksToBounds = YES;
     [glass applyFilters];
     container.layer.cornerRadius  = kWidgetCornerRadius;
-    container.layer.cornerCurve   = kCACornerCurveContinuous;
+    LGLayerSetContinuousCorners(container.layer);
     container.layer.masksToBounds = YES;
     container.clipsToBounds       = YES;
     lgTrackGlass(glass, @"Widgets", nil);
