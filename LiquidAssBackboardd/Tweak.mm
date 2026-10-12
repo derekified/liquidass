@@ -5,6 +5,7 @@
 #import "../Shared/LGLensRectState.h"
 #import "LGSymbolResolver.h"
 #import "../Shared/LGCoverSheetState.h"
+#import "../Shared/LGRendererState.h"
 #include <stdio.h>
 #include <stdarg.h>
 #include <string.h>
@@ -255,6 +256,7 @@ static void lglog(const char *fmt, ...) {
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <fcntl.h>
+#include <atomic>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -353,6 +355,7 @@ static IdentityFn      g_origGaussIdentity = nullptr;
 static EdgeInfoFn      g_origGaussEdgeInfo = nullptr;
 static void           *g_gaussCtxValue  = nullptr; // raw gaussian vtable ptr (stripped)
 static bool            g_filterRegistered = false;
+static bool            g_filterTableRetryPending = false;
 
 static void  **g_customVtable = nullptr; // mmapped 22-slot cloned gaussian vtable
 static void   *g_customCtx    = nullptr; // mmapped filtersubclass-shaped block
@@ -1207,6 +1210,34 @@ static NSString * const kLGPrefsReloadNote = @"dylv.liquidassprefs/Reload";
 static CFStringRef const kLGParametersReloadedNote =
     CFSTR("dylv.liquidglass/ParametersReloaded");
 
+static void lgPublishRendererState(uint64_t state, const char *reason) {
+    static std::atomic<uint64_t> sPublished{LGRendererStateUnknown};
+    uint64_t previous = sPublished.exchange(state);
+    if (previous == state) return;
+    bool written = LGRendererStateWrite(state);
+    lglog("renderer state %llu -> %llu (%s)%s", (unsigned long long)previous,
+          (unsigned long long)state, reason ?: "", written ? "" : " [notify_set_state failed]");
+    CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(),
+        kLGParametersReloadedNote, NULL, NULL, true);
+}
+
+static void lgNoteCustomRender(bool succeeded) {
+    static std::atomic<uint32_t> sSucceeded{0};
+    static std::atomic<uint32_t> sFailed{0};
+    if (succeeded) {
+        if (sSucceeded.fetch_add(1) == 0)
+            lgPublishRendererState(LGRendererStateActive, "first custom pass encoded");
+        return;
+    }
+    if (sSucceeded.load() == 0 && sFailed.fetch_add(1) + 1 == 60)
+        lgPublishRendererState(LGRendererStateUnavailable, "custom pass never encoded");
+}
+
+struct LGCustomRenderOutcome {
+    bool encoded = false;
+    ~LGCustomRenderOutcome() { lgNoteCustomRender(encoded); }
+};
+
 static bool lgDecodeTintColor(NSString *hex, simd_float4 *out);
 
 static void lgApplyHistoricalTintDefault(int host, LGHostParams *p, bool dark) {
@@ -1324,6 +1355,7 @@ static void ourCustomRender13(void *self, void *filter, void *layer, void *ctx,
     // trace only the first calls so render logs stay usable
     static uint64_t g_traceCalls = 0;
     uint64_t callN = ++g_traceCalls;
+    LGCustomRenderOutcome outcome;
 #define R13TRACE(...) do { if (callN <= 3) lglog(__VA_ARGS__); } while (0)
     R13TRACE("R13[%llu] ENTER ctx=%p surface=%p opacity=%.2f scale=%.2f flag=%d",
              callN, ctx, surface, opacity, scale, (int)flag);
@@ -1618,6 +1650,7 @@ static void ourCustomRender13(void *self, void *filter, void *layer, void *ctx,
     [enc setFragmentBytes:&lu length:sizeof(lu) atIndex:0];
     [enc drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
     [enc endEncoding];
+    outcome.encoded = true;
 
     uint64_t t_afterOurs = mach_absolute_time();
     R13TRACE("R13[%llu] after our compute dispatch", callN);
@@ -1909,6 +1942,7 @@ static bool registerCustomFilter(void) {
         return false;
     }
     if (g_filterRegistered) return true; // idempotent
+    g_filterTableRetryPending = false;
 
     void **gaussCtxSlot = (void **)LGResolve_GaussianCtxSlot();
     if (!gaussCtxSlot) {
@@ -1969,9 +2003,13 @@ static bool registerCustomFilter(void) {
 
     if (!*filterTableSlot) {
         lglog("registerCustomFilter: filter_table null, retrying in 250ms");
+        g_filterTableRetryPending = true;
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 250 * NSEC_PER_MSEC),
                        dispatch_get_global_queue(QOS_CLASS_UTILITY, 0),
-                       ^{ registerCustomFilter(); });
+                       ^{
+            if (!registerCustomFilter() && !g_filterRegistered && !g_filterTableRetryPending)
+                lgPublishRendererState(LGRendererStateUnavailable, "filter registration failed");
+        });
         return false;
     }
 
@@ -2100,6 +2138,7 @@ static bool registerCustomFilter(void) {
     }
 
     g_filterRegistered = true;
+    LGRendererStateWrite(LGRendererStateRegistered);
     lglog("registerCustomFilter: done mode=%s descriptor=%p renderSlot=%d atom=0x%x hosts=%d",
           g_useHookPath ? "hook" : "clone", registrationDescriptor,
           renderSlot, atomId, kHostCount);
@@ -2115,7 +2154,11 @@ __attribute__((constructor))
 static void tweakInit(void) {
     @autoreleasepool {
     lgClearAccessibilityFiles();
-    if (lgShouldEnterSafeMode()) return;
+    LGRendererStateWrite(LGRendererStateStarting);
+    if (lgShouldEnterSafeMode()) {
+        lgPublishRendererState(LGRendererStateUnavailable, "safe mode");
+        return;
+    }
     {
         NSDictionary *bootPrefs =
             [NSDictionary dictionaryWithContentsOfFile:lgPrefsPath()];
@@ -2161,6 +2204,7 @@ static void tweakInit(void) {
           (!kIsPACSlice && g_useHookPath) ? " (forced by marker)" : "");
     if (!LGSymResolverInit()) {
         lglog("init: LGSymResolverInit failed, QuartzCore not loaded yet?");
+        lgPublishRendererState(LGRendererStateUnavailable, "symbol resolver init failed");
         return;
     }
 
@@ -2177,6 +2221,7 @@ static void tweakInit(void) {
 
     if (!stopEnc || !internA || !addF) {
         lglog("init: required symbol(s) unresolved on this build, not activating (no fallback)");
+        lgPublishRendererState(LGRendererStateUnavailable, "required symbols unresolved");
         return;
     }
 
@@ -2188,7 +2233,8 @@ static void tweakInit(void) {
 
     g_renderPipelines =
         new std::unordered_map<NSUInteger, id<MTLRenderPipelineState>>();
-    registerCustomFilter();
+    if (!registerCustomFilter() && !g_filterRegistered && !g_filterTableRetryPending)
+        lgPublishRendererState(LGRendererStateUnavailable, "filter registration failed");
 
     lglog("ready");
     }
