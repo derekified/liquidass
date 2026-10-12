@@ -1,7 +1,7 @@
 ifeq ($(THEOS_CURRENT_ARCH),arm64e)
-TARGET := iphone:clang:latest:14.0
+TARGET := iphone:clang:16.5:14.0
 else
-TARGET := iphone:clang:latest:12.0
+TARGET := iphone:clang:16.5:12.0
 endif
 
 include $(THEOS)/makefiles/common.mk

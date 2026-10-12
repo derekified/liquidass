@@ -1,9 +1,9 @@
 # iOS 12.5.7 (A7/A8) devices are arm64-only, so the arm64 slice deploys to 12.0.
 # clang >= 12 cannot emit a valid arm64e slice for deployments below 14.0.
 ifeq ($(THEOS_CURRENT_ARCH),arm64e)
-export TARGET 			:= iphone:clang:latest:14.0
+export TARGET 			:= iphone:clang:16.5:14.0
 else
-export TARGET 			:= iphone:clang:latest:12.0
+export TARGET 			:= iphone:clang:16.5:12.0
 endif
 export ARCHS 			:= arm64 arm64e
 export USE_DEPS 		:= 1
