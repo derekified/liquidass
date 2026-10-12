@@ -1,3 +1,4 @@
+#import "../Shared/LGCompat.h"
 #import <UIKit/UIKit.h>
 #import "../Shared/LGLiveBackdropView.h"
 #import "../Shared/LGGlassKit.h"
@@ -73,7 +74,7 @@ static void *kLGPlatterClassificationKey = &kLGPlatterClassificationKey;
 
 static BOOL LGIsTopBannerPresentation(UIView *view) {
     if (!view.window) return NO;
-    if ([NSStringFromClass(view.window.class) isEqualToString:@"SBBannerWindow"]) return YES;
+    if (LGObjectIsExactClass(view.window, @"SBBannerWindow")) return YES;
     if (hasAncestorOfClassName(view, @"BNContentViewControllerView")) return YES;
     if (LGResponderChainContainsClass(view, @"BNContentViewController")) return YES;
     return LGResponderChainContainsClass(view, @"SBNotificationPresentableViewController");

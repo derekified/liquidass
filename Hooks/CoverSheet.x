@@ -216,7 +216,15 @@ static CGFloat LGCoverSheetCornerRadiusPoints(void) {
 }
 
 static BOOL LGCoverSheetUsesLegacyLockedDismissal(void) {
-    return NSProcessInfo.processInfo.operatingSystemVersion.majorVersion < 26;
+    static BOOL supported;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        Class manager = NSClassFromString(@"SBCoverSheetPresentationManager");
+        supported = NSProcessInfo.processInfo.operatingSystemVersion.majorVersion < 26 &&
+            [manager instancesRespondToSelector:NSSelectorFromString(@"coverSheetSlidingViewControllerShouldAllowDismissal:")] &&
+            [manager instancesRespondToSelector:NSSelectorFromString(@"coverSheetSlidingViewControllerDidEndTransition:")];
+    });
+    return supported;
 }
 
 static BOOL LGCoverSheetIsEffectivelyLocked(id manager) {
@@ -351,7 +359,7 @@ static UIView *LGCoverSheetFindViewByExactClass(id controller,
         UIView *view = stack.lastObject;
         [stack removeLastObject];
 
-        if ([NSStringFromClass(view.class) isEqualToString:className]) {
+        if (LGObjectIsExactClass(view, className)) {
             return view;
         }
 
@@ -502,7 +510,7 @@ static BOOL LGCoverSheetPasscodeModelVisible(void) {
 
             NSString *className = NSStringFromClass(view.class);
             BOOL passcodeSentinel =
-                [className isEqualToString:@"CSPasscodeBackgroundView"] ||
+                LGClassNameMatches(className, @"CSPasscodeBackgroundView") ||
                 [className isEqualToString:
                     @"SBUIPasscodeLockViewSimpleFixedDigitKeypad"];
 

@@ -445,9 +445,7 @@ static void LGUpdateKeyboardGlass(UIView *stock) {
     glass.layer.masksToBounds = YES;
     glass.lgShapeCornerRadius = LGKeyboardCornerRadius();
     glass.lgShapeRect = glass.bounds;
-    if (@available(iOS 13.0, *)) {
-        LGLayerSetContinuousCorners(glass.layer);
-    }
+    LGLayerSetContinuousCorners(glass.layer);
     LGUpdateKeyboardBorder(glass);
     glass.alpha = primary.alpha;
     glass.hidden =

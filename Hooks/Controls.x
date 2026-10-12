@@ -1073,8 +1073,7 @@ static void LGInstallSettingsSegment(UISegmentedControl *control) {
     control.layer.masksToBounds = NO;
 
 
-    if (@available(iOS 13.0, *))
-        LGLayerSetContinuousCorners(glass.layer);
+    LGLayerSetContinuousCorners(glass.layer);
 
     LGSegmentAttachGesture(control);
 
@@ -1866,8 +1865,7 @@ static void LGLayoutSidebarPanel(UIView *panel, CGRect frame) {
 
         if (fabs(sub.layer.cornerRadius - radius) > 0.01) {
             sub.layer.cornerRadius = radius;
-            if (@available(iOS 13.0, *))
-                LGLayerSetContinuousCorners(sub.layer);
+            LGLayerSetContinuousCorners(sub.layer);
         }
         if (!sub.layer.masksToBounds) sub.layer.masksToBounds = YES;
     }
@@ -1888,8 +1886,7 @@ static BOOL LGViewIsInsideSidebar(UIView *view) {
     CGFloat radius = CGRectGetHeight(self.bounds) * 0.5;
     if (fabs(self.layer.cornerRadius - radius) > 0.01) {
         self.layer.cornerRadius = radius;
-        if (@available(iOS 13.0, *))
-            LGLayerSetContinuousCorners(self.layer);
+        LGLayerSetContinuousCorners(self.layer);
     }
 }
 @end
@@ -2208,8 +2205,7 @@ static void LGUpdateSettingsSidebar(UIView *container) {
         CGFloat radius = LGSidebarCornerRadius(container);
         if (fabs(sub.layer.cornerRadius - radius) > 0.01) {
             sub.layer.cornerRadius = radius;
-            if (@available(iOS 13.0, *))
-                LGLayerSetContinuousCorners(sub.layer);
+            LGLayerSetContinuousCorners(sub.layer);
         }
         if (!sub.layer.masksToBounds) sub.layer.masksToBounds = YES;
 
@@ -2574,8 +2570,7 @@ static void LGUpdateSettingsSidebar(UIView *container) {
     if (radius < 0.5) return;
     if (fabs(self.layer.cornerRadius - radius) > 0.01) {
         self.layer.cornerRadius = radius;
-        if (@available(iOS 13.0, *))
-            LGLayerSetContinuousCorners(self.layer);
+        LGLayerSetContinuousCorners(self.layer);
     }
     if (!self.layer.masksToBounds) self.layer.masksToBounds = YES;
 }

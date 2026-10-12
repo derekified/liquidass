@@ -716,8 +716,103 @@ static void ctxScheduleLayoutProbe(UIView *listView) {
 
 %end
 
+@interface SBUIIconForceTouchWrapperViewController : UIViewController
+@property (readonly, nonatomic) UIViewController *childViewController;
+@end
+
+static void *kCtxLegacyGlassKey = &kCtxLegacyGlassKey;
+static const CGFloat kCtxLegacyPlatterRadius = 13.0;
+
+static BOOL ctxLegacyContainsContent(UIView *view) {
+    for (UIView *sub in view.subviews) {
+        if ([sub isKindOfClass:[UILabel class]] || [NSStringFromClass(sub.class) hasPrefix:@"SBUIAction"])
+            return YES;
+        if (ctxLegacyContainsContent(sub)) return YES;
+    }
+    return NO;
+}
+
+static BOOL ctxLegacyIsPlatterBackground(UIView *view, UIView *platter) {
+    if ([view isKindOfClass:[LGLiveBackdropView class]]) return NO;
+    if (ctxLegacyContainsContent(view)) return NO;
+    NSString *name = NSStringFromClass(view.class);
+    BOOL material = [view isKindOfClass:[UIVisualEffectView class]] ||
+                    [name containsString:@"Backdrop"] ||
+                    [name containsString:@"MaterialView"];
+    if (!material) return NO;
+    CGRect frame = [view convertRect:view.bounds toView:platter];
+    CGFloat area = CGRectGetWidth(platter.bounds) * CGRectGetHeight(platter.bounds);
+    CGRect overlap = CGRectIntersection(frame, platter.bounds);
+    return area > 0.0 && CGRectGetWidth(overlap) * CGRectGetHeight(overlap) >= area * 0.85;
+}
+
+static void ctxLegacyCollectBackgrounds(UIView *view, UIView *platter, NSInteger depth,
+                                        NSMutableArray<UIView *> *out) {
+    if (depth > 3) return;
+    for (UIView *sub in view.subviews) {
+        if (ctxLegacyIsPlatterBackground(sub, platter)) {
+            [out addObject:sub];
+            continue;
+        }
+        ctxLegacyCollectBackgrounds(sub, platter, depth + 1, out);
+    }
+}
+
+static void ctxLegacyUpdateShortcutPlatter(SBUIIconForceTouchWrapperViewController *wrapper) {
+    NSString *childName = NSStringFromClass(wrapper.childViewController.class);
+    if (![childName containsString:@"Shortcut"] && ![childName containsString:@"ActionPlatter"]) return;
+    UIView *platter = wrapper.isViewLoaded ? wrapper.view : nil;
+    if (!platter.window || CGRectIsEmpty(platter.bounds)) return;
+
+    LGLiveBackdropView *glass = objc_getAssociatedObject(platter, kCtxLegacyGlassKey);
+    if (!lgHostEnabled(@"ContextMenu")) {
+        glass.hidden = YES;
+        return;
+    }
+
+    NSMutableArray<UIView *> *backgrounds = [NSMutableArray array];
+    ctxLegacyCollectBackgrounds(platter, platter, 0, backgrounds);
+    CGFloat radius = kCtxLegacyPlatterRadius;
+    for (UIView *background in backgrounds) {
+        if (background.layer.cornerRadius > radius) radius = background.layer.cornerRadius;
+        lgSuppressStock(background, @"ContextMenu", YES);
+    }
+    if (platter.layer.cornerRadius > radius) radius = platter.layer.cornerRadius;
+
+    if (!glass) {
+        glass = LGCreateRegisteredGlass(platter.bounds, nil, @"ContextMenu");
+        if (!glass) return;
+        glass.userInteractionEnabled = NO;
+        objc_setAssociatedObject(platter, kCtxLegacyGlassKey, glass, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        lgTrackGlass(glass, @"ContextMenu", platter);
+    }
+    if (glass.superview != platter) [platter insertSubview:glass atIndex:0];
+    else [platter sendSubviewToBack:glass];
+    glass.hidden = NO;
+    glass.frame = platter.bounds;
+    glass.layer.cornerRadius = radius;
+    LGLayerSetContinuousCorners(glass.layer);
+    glass.layer.masksToBounds = YES;
+    [glass applyFilters];
+}
+
+%group LGLegacyShortcutMenuHooks
+
+%hook SBUIIconForceTouchWrapperViewController
+- (void)viewDidLayoutSubviews {
+    %orig;
+    ctxLegacyUpdateShortcutPlatter(self);
+}
+%end
+
+%end
+
 %ctor {
     if (LGIsExcludedSystemProcess()) return;
     %init(LGContextMenuHooks);
+    if (LGIsSpringBoardProcess() && !NSClassFromString(@"_UIContextMenuView") &&
+        NSClassFromString(@"SBUIIconForceTouchWrapperViewController")) {
+        %init(LGLegacyShortcutMenuHooks);
+    }
     lgObservePreferenceReload(^{ restoreContextMenusForDisable(); });
 }

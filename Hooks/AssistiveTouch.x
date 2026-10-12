@@ -350,6 +350,17 @@ static UIImage *CreateRadialGlowImage(CGFloat diameter) {
 
 static float sTransitionSpeedMultiplier = 1.0f;
 
+static void LGRockerPrepareForMenuExit(HNDRocker *rocker) {
+    sTransitionSpeedMultiplier = 1.25f;
+    [rocker ass_triggerMotionBlurForDuration:0.18 peakRadius:3.6];
+    [[rocker ass_menuGlowView] resetGlowImmediately];
+    UIVisualEffectView *backdrop = [rocker ass_backdropView];
+    if (backdrop) {
+        [backdrop.layer removeAllAnimations];
+        backdrop.transform = CGAffineTransformIdentity;
+    }
+}
+
 %group LGAssistiveTouchHooks
 
 %hook CALayer
@@ -554,14 +565,7 @@ static __weak HNDRocker *sCurrentActiveRocker = nil;
 }
 
 - (void)_menuExited {
-    sTransitionSpeedMultiplier = 1.25f;
-    [self ass_triggerMotionBlurForDuration:0.18 peakRadius:3.6];
-    [[self ass_menuGlowView] resetGlowImmediately];
-    UIVisualEffectView *backdrop = [self ass_backdropView];
-    if (backdrop) {
-        [backdrop.layer removeAllAnimations];
-        backdrop.transform = CGAffineTransformIdentity;
-    }
+    LGRockerPrepareForMenuExit(self);
     %orig;
     sTransitionSpeedMultiplier = 1.0f;
 }
@@ -1093,6 +1097,18 @@ static __weak HNDRocker *sCurrentActiveRocker = nil;
 
 %end
 
+%group LGAssistiveTouchLegacyMenuHooks
+
+%hook HNDRocker
+- (void)menuExited {
+    LGRockerPrepareForMenuExit(self);
+    %orig;
+    sTransitionSpeedMultiplier = 1.0f;
+}
+%end
+
+%end
+
 static void LGAssistiveTouchPrefsChanged(CFNotificationCenterRef center, void *observer,
                                         CFStringRef name, const void *object,
                                         CFDictionaryRef userInfo) {
@@ -1123,6 +1139,11 @@ static void LGAssistiveTouchRestartRequested(CFNotificationCenterRef center, voi
     if (enabledVal && ![enabledVal boolValue]) return;
 
     %init(LGAssistiveTouchHooks);
+    Class rocker = NSClassFromString(@"HNDRocker");
+    if (![rocker instancesRespondToSelector:NSSelectorFromString(@"_menuExited")] &&
+        [rocker instancesRespondToSelector:NSSelectorFromString(@"menuExited")]) {
+        %init(LGAssistiveTouchLegacyMenuHooks);
+    }
 
     CFNotificationCenterAddObserver(
         CFNotificationCenterGetDarwinNotifyCenter(), NULL,

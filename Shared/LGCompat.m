@@ -11,6 +11,45 @@ BOOL LGSystemVersionAtLeast(NSInteger major) {
     return sMajor >= major;
 }
 
+#pragma mark - Class aliases
+
+// iOS 12 SpringBoard names for classes that were renamed with the CoverSheet/BannerKit split in iOS 13/14.
+NSString *LGLegacyClassName(NSString *modernName) {
+    static NSDictionary<NSString *, NSString *> *sAliases;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        sAliases = @{
+            @"CSCoverSheetView": @"SBDashBoardView",
+            @"CSCoverSheetViewController": @"SBDashBoardViewController",
+            @"CSMainPageView": @"SBDashBoardMainPageView",
+            @"CSPasscodeBackgroundView": @"SBDashBoardPasscodeBackgroundView",
+            @"CSQuickActionsButton": @"SBDashBoardQuickActionsButton",
+            @"CSQuickActionsView": @"SBDashBoardQuickActionsView",
+            @"SBBannerWindow": @"SBNotificationBannerWindow",
+        };
+    });
+    return modernName ? sAliases[modernName] : nil;
+}
+
+Class LGClassNamed(NSString *modernName) {
+    if (!modernName.length) return Nil;
+    Class cls = NSClassFromString(modernName);
+    if (cls) return cls;
+    NSString *legacy = LGLegacyClassName(modernName);
+    return legacy ? NSClassFromString(legacy) : Nil;
+}
+
+BOOL LGClassNameMatches(NSString *actualName, NSString *modernName) {
+    if (!actualName || !modernName) return NO;
+    if ([actualName isEqualToString:modernName]) return YES;
+    NSString *legacy = LGLegacyClassName(modernName);
+    return legacy && [actualName isEqualToString:legacy];
+}
+
+BOOL LGObjectIsExactClass(id object, NSString *modernName) {
+    return object && LGClassNameMatches(NSStringFromClass([object class]), modernName);
+}
+
 #pragma mark - Corners
 
 void LGLayerSetCornerStyle(CALayer *layer, LGCornerStyle style) {

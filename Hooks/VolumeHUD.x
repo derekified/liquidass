@@ -204,9 +204,7 @@ static void LGUpdateVolumeHUDGlass(SBElasticSliderMaterialWrapperView *self) {
     glass.hidden = NO;
     glass.frame = self.bounds;
     glass.layer.cornerRadius = radius;
-    if (@available(iOS 13.0, *)) {
-        LGLayerSetContinuousCorners(glass.layer);
-    }
+    LGLayerSetContinuousCorners(glass.layer);
     glass.layer.masksToBounds = YES;
     [glass applyFilters];
 
@@ -214,30 +212,22 @@ static void LGUpdateVolumeHUDGlass(SBElasticSliderMaterialWrapperView *self) {
         vibrance.hidden = NO;
         vibrance.frame = self.bounds;
         vibrance.layer.cornerRadius = radius;
-        if (@available(iOS 13.0, *)) {
-            LGLayerSetContinuousCorners(vibrance.layer);
-        }
+        LGLayerSetContinuousCorners(vibrance.layer);
         vibrance.layer.masksToBounds = YES;
     }
 
     self.layer.cornerRadius = radius;
-    if (@available(iOS 13.0, *)) {
-        LGLayerSetContinuousCorners(self.layer);
-    }
+    LGLayerSetContinuousCorners(self.layer);
 
     if (sliderWrapper) {
         sliderWrapper.layer.cornerRadius = radius;
-        if (@available(iOS 13.0, *)) {
-            LGLayerSetContinuousCorners(sliderWrapper.layer);
-        }
+        LGLayerSetContinuousCorners(sliderWrapper.layer);
         sliderWrapper.layer.masksToBounds = YES;
     }
 
     if (sliderView) {
         sliderView.layer.cornerRadius = radius;
-        if (@available(iOS 13.0, *)) {
-            LGLayerSetContinuousCorners(sliderView.layer);
-        }
+        LGLayerSetContinuousCorners(sliderView.layer);
         sliderView.layer.masksToBounds = YES;
         if (LGVolumeHUDNeedsLegacyMaterialWorkaround()) {
             for (UIView *subview in sliderView.subviews) {
@@ -283,16 +273,12 @@ static void LGUpdateVolumeHUDGlass(SBElasticSliderMaterialWrapperView *self) {
         LGLiveBackdropView *glass = objc_getAssociatedObject(self, kLGVolumeHUDGlassKey);
         if (glass) {
             glass.layer.cornerRadius = pillRadius;
-            if (@available(iOS 13.0, *)) {
-                LGLayerSetContinuousCorners(glass.layer);
-            }
+            LGLayerSetContinuousCorners(glass.layer);
         }
         LGVolumeHUDVibranceView *vibrance = objc_getAssociatedObject(self, kLGVolumeHUDVibranceKey);
         if (vibrance) {
             vibrance.layer.cornerRadius = pillRadius;
-            if (@available(iOS 13.0, *)) {
-                LGLayerSetContinuousCorners(vibrance.layer);
-            }
+            LGLayerSetContinuousCorners(vibrance.layer);
         }
     } else {
         %orig;
@@ -303,9 +289,73 @@ static void LGUpdateVolumeHUDGlass(SBElasticSliderMaterialWrapperView *self) {
 
 %end
 
+@interface SBHUDView : UIView
+@end
+
+static const void * const kLGLegacyHUDGlassKey = &kLGLegacyHUDGlassKey;
+static const CGFloat kLGLegacyHUDCornerRadius = 18.0;
+
+static NSString *LGLegacyHUDHostName(UIView *hud) {
+    Class ringer = NSClassFromString(@"SBRingerHUDView");
+    return (ringer && [hud isKindOfClass:ringer]) ? @"PillHUD" : @"VolumeHUD";
+}
+
+static void LGUpdateLegacyHUDGlass(SBHUDView *self) {
+    UIView *backdrop = nil;
+    UIView *mask = nil;
+    @try {
+        backdrop = [self valueForKey:@"_backdropView"];
+        mask = [self valueForKey:@"_backdropMaskImageView"];
+    } @catch (...) {}
+
+    NSString *host = LGLegacyHUDHostName(self);
+    LGLiveBackdropView *glass = objc_getAssociatedObject(self, kLGLegacyHUDGlassKey);
+    if (!lgHostEnabled(host)) {
+        glass.hidden = YES;
+        backdrop.hidden = NO;
+        mask.hidden = NO;
+        return;
+    }
+
+    backdrop.hidden = YES;
+    mask.hidden = YES;
+    if (!glass) {
+        glass = LGCreateRegisteredGlass(self.bounds, nil, host);
+        if (!glass) return;
+        objc_setAssociatedObject(self, kLGLegacyHUDGlassKey, glass, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        lgTrackGlass(glass, host, self);
+    }
+    if (glass.superview != self) [self insertSubview:glass atIndex:0];
+    else [self sendSubviewToBack:glass];
+
+    glass.hidden = NO;
+    glass.frame = self.bounds;
+    glass.layer.cornerRadius = kLGLegacyHUDCornerRadius;
+    LGLayerSetContinuousCorners(glass.layer);
+    glass.layer.masksToBounds = YES;
+    [glass applyFilters];
+}
+
+%group LGLegacyHUDHooks
+
+%hook SBHUDView
+
+- (void)layoutSubviews {
+    %orig;
+    LGUpdateLegacyHUDGlass(self);
+}
+
+%end
+
+%end
+
 %ctor {
     if (!LGIsSpringBoardProcess()) return;
-    %init(LGVolumeHUDHooks);
+    if (NSClassFromString(@"SBElasticSliderMaterialWrapperView")) {
+        %init(LGVolumeHUDHooks);
+    } else if (NSClassFromString(@"SBHUDView")) {
+        %init(LGLegacyHUDHooks);
+    }
     lgObservePreferenceReload(^{
 
         LGLog(@"VolumeHUD: Preferences reloaded");

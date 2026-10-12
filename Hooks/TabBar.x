@@ -65,9 +65,7 @@ static const void *kLGTabBarVibranceKey = &kLGTabBarVibranceKey;
         self.backgroundColor = [UIColor clearColor];
         self.opaque = NO;
         self.clipsToBounds = YES;
-        if (@available(iOS 13.0, *)) {
-            LGLayerSetContinuousCorners(self.layer);
-        }
+        LGLayerSetContinuousCorners(self.layer);
         self.layer.cornerRadius = frame.size.height * 0.5;
         self.layer.masksToBounds = YES;
         [self applyFilters];
@@ -763,9 +761,7 @@ static UIView *LGTabBarBlueOverlay(UITabBar *bar, BOOL create) {
     overlay.clipsToBounds = YES;
     overlay.hidden = YES;
     overlay.alpha = 0.0;
-    if (@available(iOS 13.0, *)) {
-        LGLayerSetContinuousCorners(overlay.layer);
-    }
+    LGLayerSetContinuousCorners(overlay.layer);
     overlay.layer.cornerRadius = CGRectGetHeight(pillFrame) * 0.5;
 
     UIView *blueContent = [[UIView alloc] initWithFrame:overlay.bounds];
@@ -777,9 +773,7 @@ static UIView *LGTabBarBlueOverlay(UITabBar *bar, BOOL create) {
 
     UIView *lensMask = [[UIView alloc] initWithFrame:CGRectZero];
     lensMask.backgroundColor = UIColor.whiteColor;
-    if (@available(iOS 13.0, *)) {
-        LGLayerSetContinuousCorners(lensMask.layer);
-    }
+    LGLayerSetContinuousCorners(lensMask.layer);
     overlay.maskView = lensMask;
 
     [bar addSubview:overlay];
@@ -1128,9 +1122,7 @@ static void LGStyleStockTabBar(UITabBar *bar) {
             highlight = [[UIView alloc] initWithFrame:CGRectZero];
             highlight.userInteractionEnabled = NO;
             highlight.layer.masksToBounds = YES;
-            if (@available(iOS 13.0, *)) {
-                LGLayerSetContinuousCorners(highlight.layer);
-            }
+            LGLayerSetContinuousCorners(highlight.layer);
             if (glass) [bar insertSubview:highlight aboveSubview:glass];
             else [bar insertSubview:highlight atIndex:0];
             objc_setAssociatedObject(bar, kLGTabBarSelectedHighlightKey,

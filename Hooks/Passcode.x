@@ -262,7 +262,7 @@ static void setPasscodeButtonHighlighted(UIView *button, BOOL highlighted) {
 
 static BOOL isPasscodeSuppressibleRoot(UIView *v) {
     NSString *c = NSStringFromClass(v.class);
-    return [c isEqualToString:@"CSQuickActionsButton"]
+    return LGClassNameMatches(c, @"CSQuickActionsButton")
         || [c isEqualToString:@"CSProminentTimeView"]
         || [c isEqualToString:@"SBFLockScreenDateView"]
         || [c isEqualToString:@"PLPlatterView"]
@@ -328,7 +328,7 @@ static BOOL passcodeBackgroundVisible(UIView *v) {
 static void restorePasscodeSubtree(UIView *view) {
     if ([NSStringFromClass(view.class) isEqualToString:@"SBPasscodeNumberPadButton"])
         resetPasscodeButton(view);
-    if ([NSStringFromClass(view.class) isEqualToString:@"CSPasscodeBackgroundView"]) {
+    if (LGObjectIsExactClass(view, @"CSPasscodeBackgroundView")) {
         UIView *tint = objc_getAssociatedObject(view, kPCBgTintKey);
         [tint removeFromSuperview];
         objc_setAssociatedObject(view, kPCBgTintKey, nil, OBJC_ASSOCIATION_ASSIGN);
@@ -374,6 +374,8 @@ static void restorePasscodeForDisable(void) {
 }
 %end
 
+%group LGPasscodeBackgroundHooks
+
 %hook CSPasscodeBackgroundView
 - (void)didMoveToWindow {
     %orig;
@@ -389,6 +391,10 @@ static void restorePasscodeForDisable(void) {
 }
 %end
 
+%end
+
 %ctor {
+    %init;
+    %init(LGPasscodeBackgroundHooks, CSPasscodeBackgroundView = LGClassNamed(@"CSPasscodeBackgroundView"));
     lgObservePreferenceReload(^{ restorePasscodeForDisable(); });
 }

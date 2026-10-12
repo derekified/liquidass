@@ -857,5 +857,8 @@ static void LGAlertProbeHierarchy(UIAlertController *controller, NSString *reaso
 
 %ctor {
     if (!LGIsSpringBoardProcess() && !LGIsPreferencesProcess()) return;
-    %init(LGAlertsSpringBoard);
+    %init(LGAlertsSpringBoard,
+          _UIInterfaceActionVibrantSeparatorView =
+              NSClassFromString(@"_UIInterfaceActionVibrantSeparatorView") ?:
+              NSClassFromString(@"_UIInterfaceActionBlendingSeparatorView"));
 }

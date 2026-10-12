@@ -9,6 +9,11 @@ extern "C" {
 
 BOOL LGSystemVersionAtLeast(NSInteger major);
 
+NSString *LGLegacyClassName(NSString *modernName);
+Class LGClassNamed(NSString *modernName);
+BOOL LGClassNameMatches(NSString *actualName, NSString *modernName);
+BOOL LGObjectIsExactClass(id object, NSString *modernName);
+
 typedef NS_ENUM(NSInteger, LGCornerStyle) {
     LGCornerStyleCircular = 0,
     LGCornerStyleContinuous = 1,
