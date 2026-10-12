@@ -324,6 +324,8 @@ typedef void (*Render13Fn)(void*,
                            void*,
                            void*,
                            float*);
+struct LGVec2f { float x, y; };
+
 typedef void (*Render14Fn)(void*,
                            void*,
                            void*,
@@ -331,7 +333,7 @@ typedef void (*Render14Fn)(void*,
                            float,
                            void*,
                            float,
-                           simd_float2,
+                           LGVec2f,
                            void*,
                            void*,
                            float*);
@@ -364,7 +366,7 @@ static bool             g_skipGaussianIdentityHook = false;
 static bool             g_skipGaussianEdgeHook = false;
 static bool             g_skipGaussianRenderHook = false;
 static thread_local bool g_inLegacyRender = false;
-static thread_local simd_float2 g_legacyRenderOffset = { 0.0f, 0.0f };
+static thread_local LGVec2f g_legacyRenderOffset = { 0.0f, 0.0f };
 static std::unordered_set<uint32_t> g_customAtoms;
 static os_unfair_lock g_customAtomsLock = OS_UNFAIR_LOCK_INIT;
 static std::unordered_set<uint32_t> g_loggedRenderAtoms;
@@ -1703,7 +1705,7 @@ static void ourGaussianRenderHook(void *self, void *filter, void *layer, void *c
 
 static void ourGaussianRender14Hook(void *self, void *filter, void *layer, void *ctx,
                                     float opacity, void *surface, float scale,
-                                    simd_float2 offset, void *cm, void *shape,
+                                    LGVec2f offset, void *cm, void *shape,
                                     float *out) {
     uint32_t atom = filter
         ? *(uint32_t *)((uint8_t *)filter + g_filterAtomOffset) : 0;
