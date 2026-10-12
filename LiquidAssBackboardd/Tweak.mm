@@ -1221,9 +1221,19 @@ static void lgPublishRendererState(uint64_t state, const char *reason) {
         kLGParametersReloadedNote, NULL, NULL, true);
 }
 
+static std::atomic<uint32_t> g_customRenderDispatches{0};
+
+static void lgNoteCustomIdentity(void) {
+    static std::atomic<uint32_t> sIdentityQueries{0};
+    if (g_customRenderDispatches.load() == 0 && sIdentityQueries.fetch_add(1) + 1 == 240)
+        lgPublishRendererState(LGRendererStateUnavailable,
+                               "custom filter queried 240x but never dispatched to render");
+}
+
 static void lgNoteCustomRender(bool succeeded) {
     static std::atomic<uint32_t> sSucceeded{0};
     static std::atomic<uint32_t> sFailed{0};
+    g_customRenderDispatches.fetch_add(1);
     if (succeeded) {
         if (sSucceeded.fetch_add(1) == 0)
             lgPublishRendererState(LGRendererStateActive, "first custom pass encoded");
@@ -1684,6 +1694,7 @@ static int ourIdentityStub(void *self, void *filter) {
         identityLogged = true;
         lglog("ourIdentityStub: first call, CA is dispatching into our vtable (self=%p filter=%p)", self, filter);
     }
+    lgNoteCustomIdentity();
     return 0;
 }
 
@@ -1770,6 +1781,7 @@ static int ourGaussianIdentityHook(void *self, void *filter) {
             lglog("hook: first custom identity forced nonidentity atom=0x%x self=%p filter=%p",
                   atom, self, filter);
         }
+        lgNoteCustomIdentity();
         return 0;
     }
     return g_origGaussIdentity
