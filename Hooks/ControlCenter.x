@@ -835,21 +835,39 @@ static void ccRefreshContentContainerGlass(UIView *container) {
 #pragma mark - hooks
 
 %hook CCUIContentModuleContainerView
-- (void)layoutSubviews { %orig; roundModuleContainer((UIView *)self); }
-- (void)didMoveToWindow { %orig; roundModuleContainer((UIView *)self); }
+- (void)layoutSubviews {
+    %orig;
+    roundModuleContainer((UIView *)self);
+}
+- (void)didMoveToWindow {
+    %orig;
+    roundModuleContainer((UIView *)self);
+}
 %end
 
 %hook CCUIContentModuleContentContainerView
-- (void)layoutSubviews { %orig; ccRefreshContentContainerGlass((UIView *)self); }
+- (void)layoutSubviews {
+    %orig;
+    ccRefreshContentContainerGlass((UIView *)self);
+}
 %end
 
 %hook CCUIContentModuleContentContainer
-- (void)layoutSubviews { %orig; ccRefreshContentContainerGlass((UIView *)self); }
+- (void)layoutSubviews {
+    %orig;
+    ccRefreshContentContainerGlass((UIView *)self);
+}
 %end
 
 %hook CCUIButtonModuleView
-- (void)layoutSubviews { %orig; roundToggleFills((UIView *)self); }
-- (void)didMoveToWindow { %orig; roundToggleFills((UIView *)self); }
+- (void)layoutSubviews {
+    %orig;
+    roundToggleFills((UIView *)self);
+}
+- (void)didMoveToWindow {
+    %orig;
+    roundToggleFills((UIView *)self);
+}
 %end
 
 %hook CCUIContinuousSliderView
