@@ -1030,6 +1030,54 @@ static const CGFloat kLGGlassEdgeWidth = 1.0;
 
 #pragma mark - generic host injection
 
+static BOOL LGViewIsIconHost(UIView *view) {
+    return [NSStringFromClass(view.class) containsString:@"Icon"];
+}
+
+static BOOL LGViewIsStockChrome(UIView *view) {
+    if (!view || [view isKindOfClass:LGLiveBackdropView.class] || LGViewIsIconHost(view)) return NO;
+    NSString *name = NSStringFromClass(view.class);
+    return [name isEqualToString:@"SBWallpaperEffectView"] ||
+           [name isEqualToString:@"MTMaterialView"] ||
+           [name isEqualToString:@"SBFolderIconBackgroundView"] ||
+           [name isEqualToString:@"SBFolderBackgroundView"] ||
+           [name containsString:@"Wallpaper"] ||
+           [name containsString:@"Backdrop"] ||
+           [name containsString:@"Material"] ||
+           [name containsString:@"Blur"] ||
+           [name containsString:@"Background"];
+}
+
+static void LGSilenceView(UIView *view) {
+    if (!view) return;
+    view.hidden = YES;
+    view.alpha = 0.0;
+    view.opaque = NO;
+    view.layer.opacity = 0.0;
+}
+
+static void LGRestoreView(UIView *view) {
+    if (!view) return;
+    view.hidden = NO;
+    view.alpha = 1.0;
+    view.layer.opacity = 1.0;
+}
+
+static void LGSilenceStockChromeBeforeGlass(UIView *mat, NSString *filterType) {
+    (void)filterType;
+    LGSilenceView(mat);
+    UIView *dock = mat;
+    while (dock && ![NSStringFromClass(dock.class) isEqualToString:@"SBDockView"])
+        dock = dock.superview;
+    if (!dock) return;
+    dock.backgroundColor = UIColor.clearColor;
+    dock.opaque = NO;
+    for (UIView *subview in dock.subviews) {
+        if (subview == mat || !LGViewIsStockChrome(subview)) continue;
+        LGSilenceView(subview);
+    }
+}
+
 static CGRect LGOutsetFrame(CGRect mf, UIEdgeInsets outset) {
     return CGRectMake(mf.origin.x - outset.left,
                       mf.origin.y - outset.top,
@@ -1043,6 +1091,7 @@ void LGInjectGlassIntoMaterialGroupType(UIView *mat, const void *assocKey,
     UIView *parent = mat.superview;
     if (!parent) return;
 
+    LGSilenceStockChromeBeforeGlass(mat, filterType);
     CGRect gf = LGOutsetFrame(mat.frame, outset);
 
     LGLiveBackdropView *glass = objc_getAssociatedObject(mat, assocKey);
@@ -1072,7 +1121,7 @@ void LGInjectGlassIntoMaterialGroupType(UIView *mat, const void *assocKey,
     objc_setAssociatedObject(glass, kLGOutsetKey, [NSValue valueWithUIEdgeInsets:outset],
                              OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     objc_setAssociatedObject(glass, kLGRadiusKey, @(cornerRadius), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    if (!mat.hidden) mat.hidden = YES;
+    LGSilenceStockChromeBeforeGlass(mat, filterType);
 }
 
 static void LGSyncGlassGeometry(UIView *mat, const void *assocKey,
@@ -1102,14 +1151,22 @@ static void LGSyncGlassGeometry(UIView *mat, const void *assocKey,
         [glass updateSpecular];
         [glass applyFilters];
     }
-    if (!mat.hidden) mat.hidden = YES;
+    LGSilenceStockChromeBeforeGlass(mat, glass.lgFilterType);
 }
 
 void LGRemoveGlassFromMaterial(UIView *mat, const void *assocKey) {
     LGLiveBackdropView *glass = objc_getAssociatedObject(mat, assocKey);
     if (!glass) return;
     objc_setAssociatedObject(mat, assocKey, nil, OBJC_ASSOCIATION_ASSIGN);
-    mat.hidden = NO;
+    LGRestoreView(mat);
+    UIView *dock = mat.superview;
+    while (dock && ![NSStringFromClass(dock.class) isEqualToString:@"SBDockView"])
+        dock = dock.superview;
+    if (dock) {
+        for (UIView *subview in dock.subviews) {
+            if (LGViewIsStockChrome(subview)) LGRestoreView(subview);
+        }
+    }
 
     [glass removeFromSuperview];
 }
