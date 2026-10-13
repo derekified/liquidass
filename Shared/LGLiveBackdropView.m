@@ -134,6 +134,67 @@ static BOOL LGHostIsClearVariant(enum LGHostIdentifier host) {
     }
 }
 
+// Apple iOS 27 UI Kit, "Liquid Glass" boards. The shader mixes by tint.a * 0.8,
+// so these alphas are the shader inputs that reproduce the sampled overlays.
+typedef enum {
+    LGGlassTierSmall = 0,
+    LGGlassTierMedium,
+    LGGlassTierLarge,
+} LGGlassTier;
+
+static LGGlassTier LGGlassTierForHost(enum LGHostIdentifier host) {
+    switch (host) {
+        case LGHostIdentifierDock:
+        case LGHostIdentifierSearchPill:
+        case LGHostIdentifierAppLibSearch:
+        case LGHostIdentifierQuickActions:
+        case LGHostIdentifierPrefsSlider:
+        case LGHostIdentifierPrefsSwitch:
+        case LGHostIdentifierPrefsSegment:
+        case LGHostIdentifierTabBar:
+        case LGHostIdentifierTabBarSelection:
+        case LGHostIdentifierFolderIcon:
+        case LGHostIdentifierAppIcons:
+        case LGHostIdentifierAssistiveTouch:
+        case LGHostIdentifierPillHUD:
+            return LGGlassTierSmall;
+        case LGHostIdentifierOpenFolder:
+        case LGHostIdentifierAlerts:
+        case LGHostIdentifierContextMenu:
+        case LGHostIdentifierControlCenter:
+        case LGHostIdentifierWidgets:
+        case LGHostIdentifierAppLibrary:
+        case LGHostIdentifierPasscode:
+            return LGGlassTierLarge;
+        default:
+            return LGGlassTierMedium;
+    }
+}
+
+static BOOL LGHostIsHomeChrome(enum LGHostIdentifier host) {
+    return host == LGHostIdentifierDock || host == LGHostIdentifierSearchPill;
+}
+
+static UIColor *LGGlassTierTint(LGGlassTier tier, BOOL homeChrome, BOOL dark) {
+    if (homeChrome) {
+        // Home Screen artboard: the dock and search chip stay see-through.
+        return dark ? [UIColor colorWithRed:0.16 green:0.16 blue:0.20 alpha:0.55]
+                    : [UIColor colorWithWhite:1.0 alpha:0.28];
+    }
+    switch (tier) {
+        case LGGlassTierSmall:
+            return dark ? [UIColor colorWithWhite:0.47 alpha:0.375]
+                        : [UIColor colorWithWhite:0.875 alpha:0.675];
+        case LGGlassTierLarge:
+            return dark ? [UIColor colorWithWhite:0.08 alpha:1.0]
+                        : [UIColor colorWithWhite:0.957 alpha:0.925];
+        case LGGlassTierMedium:
+        default:
+            return dark ? [UIColor colorWithWhite:0.09 alpha:0.61]
+                        : [UIColor colorWithWhite:0.788 alpha:0.91];
+    }
+}
+
 static BOOL LGParseTintHex(id value, CGFloat rgba[4]) {
     if (![value isKindOfClass:NSString.class]) return NO;
     NSString *hex = [[(NSString *)value stringByTrimmingCharactersInSet:
@@ -668,19 +729,16 @@ static const CGFloat kLGGlassEdgeWidth = 1.0;
 }
 
 - (UIColor *)lgKitTintForHost:(const LGHostDefinition *)host clear:(BOOL)clear {
+    (void)clear;
     BOOL dark = self.traitCollection.userInterfaceStyle == UIUserInterfaceStyleDark;
     NSString *prefix = [NSString stringWithUTF8String:host->preferencePrefix];
     CGFloat rgba[4];
     id configured = LGGlassPreferenceValue([prefix stringByAppendingString:
         dark ? @".DarkTintColor" : @".LightTintColor"]);
-    if (!LGParseTintHex(configured, rgba)) {
-        if (!clear) {
-            return dark ? [UIColor colorWithRed:0.0 green:0.04958364581 blue:0.09951775161 alpha:0.7981493615]
-                        : [UIColor colorWithRed:0.9023525731 green:0.9509486998 blue:1.0 alpha:0.8002892298];
-        }
-        LGParseTintHex([NSString stringWithUTF8String:dark ? host->darkTintHex : host->lightTintHex], rgba);
-    }
-    return [UIColor colorWithRed:rgba[0] green:rgba[1] blue:rgba[2] alpha:rgba[3]];
+    if (LGParseTintHex(configured, rgba))
+        return [UIColor colorWithRed:rgba[0] green:rgba[1] blue:rgba[2] alpha:rgba[3]];
+    enum LGHostIdentifier identifier = LGHostIdentifierForDefinition(host);
+    return LGGlassTierTint(LGGlassTierForHost(identifier), LGHostIsHomeChrome(identifier), dark);
 }
 
 - (BOOL)updateKitGlass {
@@ -707,6 +765,31 @@ static const CGFloat kLGGlassEdgeWidth = 1.0;
     BOOL clear = LGHostIsClearVariant(identifier);
     NSString *prefix = [NSString stringWithUTF8String:host->preferencePrefix];
     LGKitGlassParameters parameters = LGKitGlassParametersRegular;
+    LGGlassTier tier = LGGlassTierForHost(identifier);
+    BOOL homeChrome = LGHostIsHomeChrome(identifier);
+    if (homeChrome) {
+        parameters.glassThickness = 10.0;
+        parameters.backgroundTextureScaleCoefficient = 0.35;
+        parameters.backgroundTextureBlurRadius = 0.12;
+        parameters.fresnelIntensity = 0.45;
+    } else if (tier == LGGlassTierSmall) {
+        parameters.glassThickness = 8.0;
+        parameters.backgroundTextureScaleCoefficient = 0.50;
+        parameters.backgroundTextureBlurRadius = 0.0;
+        parameters.fresnelIntensity = 0.60;
+        parameters.glareIntensity = 0.14;
+    } else if (tier == LGGlassTierLarge) {
+        parameters.glassThickness = 16.0;
+        parameters.backgroundTextureScaleCoefficient = 0.18;
+        parameters.backgroundTextureBlurRadius = 0.45;
+        parameters.refractiveIndex = 1.55;
+        parameters.fresnelIntensity = 0.15;
+    } else {
+        parameters.glassThickness = 12.0;
+        parameters.backgroundTextureScaleCoefficient = 0.22;
+        parameters.backgroundTextureBlurRadius = 0.30;
+        parameters.fresnelIntensity = 0.25;
+    }
     CGFloat value = 0.0;
     if (LGHostPreferenceNumber(prefix, @".BezelWidth", &value))
         parameters.glassThickness = MAX(2.0, MIN(40.0, value * 0.5));
@@ -1037,6 +1120,7 @@ static BOOL LGViewIsIconHost(UIView *view) {
 static BOOL LGViewIsStockChrome(UIView *view) {
     if (!view || [view isKindOfClass:LGLiveBackdropView.class] || LGViewIsIconHost(view)) return NO;
     NSString *name = NSStringFromClass(view.class);
+    if ([name hasPrefix:@"LG"]) return NO;
     return [name isEqualToString:@"SBWallpaperEffectView"] ||
            [name isEqualToString:@"MTMaterialView"] ||
            [name isEqualToString:@"SBFolderIconBackgroundView"] ||
@@ -1050,10 +1134,13 @@ static BOOL LGViewIsStockChrome(UIView *view) {
 
 static void LGSilenceView(UIView *view) {
     if (!view) return;
+    // hidden / layer opacity only. Assigning alpha here is a setAlpha: call,
+    // and that hook forwards the value onto the glass.
     view.hidden = YES;
-    view.alpha = 0.0;
     view.opaque = NO;
+    view.backgroundColor = UIColor.clearColor;
     view.layer.opacity = 0.0;
+    view.layer.backgroundColor = UIColor.clearColor.CGColor;
 }
 
 static void LGRestoreView(UIView *view) {
