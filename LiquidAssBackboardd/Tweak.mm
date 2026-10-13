@@ -973,6 +973,95 @@ renderPipelineForFormat(__unsafe_unretained id<MTLDevice> device, MTLPixelFormat
     return pipeline;
 }
 
+static os_unfair_lock g_scratchLock = OS_UNFAIR_LOCK_INIT;
+static std::unordered_map<uint64_t, id<MTLTexture>> *g_scratchTextures = nullptr;
+
+static id<MTLTexture> lgScratchTexture(__unsafe_unretained id<MTLDevice> device,
+                                       MTLPixelFormat format, NSUInteger w, NSUInteger h) {
+    uint64_t key = ((uint64_t)format << 40) | ((uint64_t)(w & 0xfffff) << 20) | (h & 0xfffff);
+    os_unfair_lock_lock(&g_scratchLock);
+    if (!g_scratchTextures)
+        g_scratchTextures = new std::unordered_map<uint64_t, id<MTLTexture>>();
+    auto found = g_scratchTextures->find(key);
+    if (found != g_scratchTextures->end()) {
+        id<MTLTexture> texture = found->second;
+        os_unfair_lock_unlock(&g_scratchLock);
+        return texture;
+    }
+    if (g_scratchTextures->size() >= 16) g_scratchTextures->clear();
+    MTLTextureDescriptor *descriptor =
+        [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:format
+                                                           width:w
+                                                          height:h
+                                                       mipmapped:NO];
+    descriptor.usage = MTLTextureUsageRenderTarget | MTLTextureUsageShaderRead;
+    descriptor.storageMode = MTLStorageModePrivate;
+    id<MTLTexture> texture = [device newTextureWithDescriptor:descriptor];
+    if (texture) (*g_scratchTextures)[key] = texture;
+    os_unfair_lock_unlock(&g_scratchLock);
+    if (!texture)
+        lglog("scratch texture allocation failed fmt=%lu %lux%lu",
+              (unsigned long)format, (unsigned long)w, (unsigned long)h);
+    return texture;
+}
+
+// iOS 12 Context::blur_surface owns its destination surfaces, so the glass pass
+// rewrites the backdrop source and the stock radius-0 pass composites it.
+static bool lgEncodeSourcePrepass(void *ctx, uint8_t *metalCtx,
+                                  __unsafe_unretained id<MTLTexture> src,
+                                  __unsafe_unretained id<MTLTexture> mask,
+                                  LGUniforms lu, uint32_t atom) {
+    static int sPrepassLogs = 0;
+    if (src.framebufferOnly || src.textureType != MTLTextureType2D || src.sampleCount != 1) {
+        if (__sync_fetch_and_add(&sPrepassLogs, 1) < 20)
+            lglog("prepass: source not writable atom=0x%x fbOnly=%d type=%lu samples=%lu",
+                  atom, (int)src.framebufferOnly, (unsigned long)src.textureType,
+                  (unsigned long)src.sampleCount);
+        return false;
+    }
+    __unsafe_unretained id<MTLDevice> device = src.device;
+    id<MTLRenderPipelineState> pipeline = renderPipelineForFormat(device, src.pixelFormat);
+    id<MTLTexture> scratch = lgScratchTexture(device, src.pixelFormat, src.width, src.height);
+    if (!pipeline || !scratch || !g_stopEncoders) return false;
+
+    g_stopEncoders(ctx);
+    void *rawCmdBuf = *(void **)(metalCtx + g_cmdBufOffset);
+    if (!rawCmdBuf) {
+        lglog("prepass: command buffer unavailable after stopEncoders");
+        return false;
+    }
+    __unsafe_unretained id<MTLCommandBuffer> cmdBuf = (__bridge id<MTLCommandBuffer>)rawCmdBuf;
+
+    lu.outputResolution = lu.resolution;
+    MTLRenderPassDescriptor *pass = [MTLRenderPassDescriptor renderPassDescriptor];
+    pass.colorAttachments[0].texture = scratch;
+    pass.colorAttachments[0].loadAction = MTLLoadActionDontCare;
+    pass.colorAttachments[0].storeAction = MTLStoreActionStore;
+    id<MTLRenderCommandEncoder> enc = [cmdBuf renderCommandEncoderWithDescriptor:pass];
+    if (!enc) { lglog("prepass: nil render encoder"); return false; }
+    [enc setRenderPipelineState:pipeline];
+    [enc setFragmentTexture:src atIndex:0];
+    [enc setFragmentTexture:mask atIndex:1];
+    [enc setFragmentBytes:&lu length:sizeof(lu) atIndex:0];
+    [enc drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
+    [enc endEncoding];
+
+    id<MTLBlitCommandEncoder> blit = [cmdBuf blitCommandEncoder];
+    if (!blit) { lglog("prepass: nil blit encoder"); return false; }
+    [blit copyFromTexture:scratch sourceSlice:0 sourceLevel:0
+             sourceOrigin:MTLOriginMake(0, 0, 0)
+               sourceSize:MTLSizeMake(src.width, src.height, 1)
+                toTexture:src destinationSlice:0 destinationLevel:0
+        destinationOrigin:MTLOriginMake(0, 0, 0)];
+    [blit endEncoding];
+
+    if (__sync_fetch_and_add(&sPrepassLogs, 1) < 20)
+        lglog("prepass: encoded atom=0x%x src=%lux%lu fmt=%lu",
+              atom, (unsigned long)src.width, (unsigned long)src.height,
+              (unsigned long)src.pixelFormat);
+    return true;
+}
+
 static bool lgEnsureClockSharedMaskMapping(void) {
     if (g_clockSharedMaskMapping != MAP_FAILED) return true;
     int fd = open(kClockSharedMaskPath, O_RDONLY | O_CLOEXEC);
@@ -1565,6 +1654,18 @@ static void ourCustomRender13(void *self, void *filter, void *layer, void *ctx,
             lglog("prefs render atom=0x%x tex=%llux%llu ratio=%.4f radius=%.2f bezel=%.2f",
                   ftype, w, h, radiusRatio, lu.radius, lu.bezelWidth);
         }
+    }
+
+    if (g_osMajorVersion <= 12) {
+        outcome.encoded = lgEncodeSourcePrepass(ctx, metalCtx, origTex, clockMask, lu, ftype);
+        if (g_inLegacyRender && g_origGaussR14) {
+            g_origGaussR14(self, filter, layer, ctx, opacity, surface,
+                           0.0f, g_legacyRenderOffset, cm, shape, out);
+        } else if (g_origGaussR13) {
+            g_origGaussR13(self, filter, layer, ctx, opacity, surface,
+                           0.0f, flag, cm, shape, out);
+        }
+        return;
     }
 
     R13TRACE("R13[%llu] before g_origGaussR13(%p)", callN, (void *)g_origGaussR13);
