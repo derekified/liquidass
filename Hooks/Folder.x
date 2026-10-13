@@ -201,6 +201,15 @@ static void folderMaterialDidLayout(UIView *self_) {
     if (LGMaterialHasGlass((UIView *)self, kGlassKey)) hidden = YES;
     %orig(hidden);
 }
+- (void)setAlpha:(CGFloat)alpha {
+    UIView *material = (UIView *)self;
+    if (LGStockAlphaShouldSuppress(material, alpha)) {
+        %orig(0);
+        LGStockAlphaSuppressed(material);
+        return;
+    }
+    %orig(alpha);
+}
 - (void)setFrame:(CGRect)frame {
     %orig(frame);
     LGResyncGlassGeometry((UIView *)self, kGlassKey);
@@ -219,6 +228,15 @@ static void folderMaterialDidLayout(UIView *self_) {
 - (void)setHidden:(BOOL)hidden {
     if (LGMaterialHasGlass((UIView *)self, kGlassKey)) hidden = YES;
     %orig(hidden);
+}
+- (void)setAlpha:(CGFloat)alpha {
+    UIView *material = (UIView *)self;
+    if (LGStockAlphaShouldSuppress(material, alpha)) {
+        %orig(0);
+        LGStockAlphaSuppressed(material);
+        return;
+    }
+    %orig(alpha);
 }
 - (void)setFrame:(CGRect)frame {
     %orig(frame);

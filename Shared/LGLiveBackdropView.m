@@ -667,15 +667,17 @@ static const CGFloat kLGGlassEdgeWidth = 1.0;
     return [UIColor colorWithRed:rgba[0] green:rgba[1] blue:rgba[2] alpha:rgba[3]];
 }
 
-- (UIColor *)lgKitTintForHost:(const LGHostDefinition *)host clear:(BOOL)clear thumb:(BOOL)thumb {
+- (UIColor *)lgKitTintForHost:(const LGHostDefinition *)host clear:(BOOL)clear {
     BOOL dark = self.traitCollection.userInterfaceStyle == UIUserInterfaceStyleDark;
     NSString *prefix = [NSString stringWithUTF8String:host->preferencePrefix];
     CGFloat rgba[4];
     id configured = LGGlassPreferenceValue([prefix stringByAppendingString:
         dark ? @".DarkTintColor" : @".LightTintColor"]);
     if (!LGParseTintHex(configured, rgba)) {
-        if (thumb) return LGKitGlassThumbTint();
-        if (!clear) return LGKitGlassRegularTint(dark);
+        if (!clear) {
+            return dark ? [UIColor colorWithRed:0.0 green:0.04958364581 blue:0.09951775161 alpha:0.7981493615]
+                        : [UIColor colorWithRed:0.9023525731 green:0.9509486998 blue:1.0 alpha:0.8002892298];
+        }
         LGParseTintHex([NSString stringWithUTF8String:dark ? host->darkTintHex : host->lightTintHex], rgba);
     }
     return [UIColor colorWithRed:rgba[0] green:rgba[1] blue:rgba[2] alpha:rgba[3]];
@@ -703,12 +705,8 @@ static const CGFloat kLGGlassEdgeWidth = 1.0;
     }
 
     BOOL clear = LGHostIsClearVariant(identifier);
-    BOOL thumb = identifier == LGHostIdentifierPrefsSwitch || identifier == LGHostIdentifierPrefsSlider;
     NSString *prefix = [NSString stringWithUTF8String:host->preferencePrefix];
-    LGKitGlassParameters parameters = identifier == LGHostIdentifierPrefsSwitch ? LGKitGlassParametersThumb(0.75)
-        : identifier == LGHostIdentifierPrefsSlider ? LGKitGlassParametersThumb(1.0)
-        : identifier == LGHostIdentifierTabBarSelection ? LGKitGlassParametersLens()
-        : LGKitGlassParametersRegular();
+    LGKitGlassParameters parameters = LGKitGlassParametersRegular;
     CGFloat value = 0.0;
     if (LGHostPreferenceNumber(prefix, @".BezelWidth", &value))
         parameters.glassThickness = MAX(2.0, MIN(40.0, value * 0.5));
@@ -720,10 +718,9 @@ static const CGFloat kLGGlassEdgeWidth = 1.0;
         parameters.dispersionStrength = 0.0;
     if (LGHostPreferenceNumber(prefix, @".Blur", &value))
         parameters.backgroundTextureBlurRadius = MAX(0.0, value) * 0.3;
-    else if (clear && !thumb && identifier != LGHostIdentifierTabBarSelection)
+    else if (clear)
         parameters.backgroundTextureBlurRadius = 0.0;
-    if (clear && !thumb && identifier != LGHostIdentifierTabBarSelection)
-        parameters.backgroundTextureScaleCoefficient = 0.5;
+    if (clear) parameters.backgroundTextureScaleCoefficient = 0.5;
     NSNumber *override = self.lgSpecularEnabledOverride;
     BOOL specular = override ? override.boolValue : LGSpecularEnabledForFilterType(_lgFilterType);
     if (!specular) parameters.glareIntensity = 0.0;
@@ -736,12 +733,9 @@ static const CGFloat kLGGlassEdgeWidth = 1.0;
     _kitGlassView.lgParameters = parameters;
     _kitGlassView.lgShapeRect = hasShape ? _lgShapeRect : CGRectNull;
     _kitGlassView.lgCornerRadius = hasShape ? _lgShapeCornerRadius : self.layer.cornerRadius;
-    _kitGlassView.lgTintColor = [self lgKitTintForHost:host clear:clear thumb:thumb];
+    _kitGlassView.lgTintColor = [self lgKitTintForHost:host clear:clear];
     _kitGlassView.lgGlareDirectionOffset = sLGSpecularAngle;
-    BOOL lowMemory = LGKitGlassLowMemoryDevice();
-    CGFloat quality = LGQualityValue();
-    [LGKitGlassView lgSetPreferredFramesPerSecond:(lowMemory || quality < 0.75) ? 30 : 60];
-    _kitGlassView.lgDrawableScale = (lowMemory || quality < 0.5) ? 0.5 : 1.0;
+    _kitGlassView.preferredFramesPerSecond = LGQualityValue() >= 0.75 ? 60 : 30;
     return YES;
 }
 
@@ -1036,6 +1030,54 @@ static const CGFloat kLGGlassEdgeWidth = 1.0;
 
 #pragma mark - generic host injection
 
+static BOOL LGViewIsIconHost(UIView *view) {
+    return [NSStringFromClass(view.class) containsString:@"Icon"];
+}
+
+static BOOL LGViewIsStockChrome(UIView *view) {
+    if (!view || [view isKindOfClass:LGLiveBackdropView.class] || LGViewIsIconHost(view)) return NO;
+    NSString *name = NSStringFromClass(view.class);
+    return [name isEqualToString:@"SBWallpaperEffectView"] ||
+           [name isEqualToString:@"MTMaterialView"] ||
+           [name isEqualToString:@"SBFolderIconBackgroundView"] ||
+           [name isEqualToString:@"SBFolderBackgroundView"] ||
+           [name containsString:@"Wallpaper"] ||
+           [name containsString:@"Backdrop"] ||
+           [name containsString:@"Material"] ||
+           [name containsString:@"Blur"] ||
+           [name containsString:@"Background"];
+}
+
+static void LGSilenceView(UIView *view) {
+    if (!view) return;
+    view.hidden = YES;
+    view.alpha = 0.0;
+    view.opaque = NO;
+    view.layer.opacity = 0.0;
+}
+
+static void LGRestoreView(UIView *view) {
+    if (!view) return;
+    view.hidden = NO;
+    view.alpha = 1.0;
+    view.layer.opacity = 1.0;
+}
+
+static void LGSilenceStockChromeBeforeGlass(UIView *mat, NSString *filterType) {
+    (void)filterType;
+    LGSilenceView(mat);
+    UIView *dock = mat;
+    while (dock && ![NSStringFromClass(dock.class) isEqualToString:@"SBDockView"])
+        dock = dock.superview;
+    if (!dock) return;
+    dock.backgroundColor = UIColor.clearColor;
+    dock.opaque = NO;
+    for (UIView *subview in dock.subviews) {
+        if (subview == mat || !LGViewIsStockChrome(subview)) continue;
+        LGSilenceView(subview);
+    }
+}
+
 static CGRect LGOutsetFrame(CGRect mf, UIEdgeInsets outset) {
     return CGRectMake(mf.origin.x - outset.left,
                       mf.origin.y - outset.top,
@@ -1049,6 +1091,7 @@ void LGInjectGlassIntoMaterialGroupType(UIView *mat, const void *assocKey,
     UIView *parent = mat.superview;
     if (!parent) return;
 
+    LGSilenceStockChromeBeforeGlass(mat, filterType);
     CGRect gf = LGOutsetFrame(mat.frame, outset);
 
     LGLiveBackdropView *glass = objc_getAssociatedObject(mat, assocKey);
@@ -1078,7 +1121,7 @@ void LGInjectGlassIntoMaterialGroupType(UIView *mat, const void *assocKey,
     objc_setAssociatedObject(glass, kLGOutsetKey, [NSValue valueWithUIEdgeInsets:outset],
                              OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     objc_setAssociatedObject(glass, kLGRadiusKey, @(cornerRadius), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    if (!mat.hidden) mat.hidden = YES;
+    LGSilenceStockChromeBeforeGlass(mat, filterType);
 }
 
 static void LGSyncGlassGeometry(UIView *mat, const void *assocKey,
@@ -1108,14 +1151,22 @@ static void LGSyncGlassGeometry(UIView *mat, const void *assocKey,
         [glass updateSpecular];
         [glass applyFilters];
     }
-    if (!mat.hidden) mat.hidden = YES;
+    LGSilenceStockChromeBeforeGlass(mat, glass.lgFilterType);
 }
 
 void LGRemoveGlassFromMaterial(UIView *mat, const void *assocKey) {
     LGLiveBackdropView *glass = objc_getAssociatedObject(mat, assocKey);
     if (!glass) return;
     objc_setAssociatedObject(mat, assocKey, nil, OBJC_ASSOCIATION_ASSIGN);
-    mat.hidden = NO;
+    LGRestoreView(mat);
+    UIView *dock = mat.superview;
+    while (dock && ![NSStringFromClass(dock.class) isEqualToString:@"SBDockView"])
+        dock = dock.superview;
+    if (dock) {
+        for (UIView *subview in dock.subviews) {
+            if (LGViewIsStockChrome(subview)) LGRestoreView(subview);
+        }
+    }
 
     [glass removeFromSuperview];
 }

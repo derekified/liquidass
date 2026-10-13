@@ -25,6 +25,12 @@ extern void *kGlassKey;
 void lgTrackGlass(UIView *glass, NSString *prefix, UIView *material);
 
 void lgSuppressStock(UIView *v, NSString *prefix, BOOL setHidden);
+void lgRestoreStock(UIView *view);
+
+BOOL LGIsIconHostView(UIView *view);
+BOOL LGIsStockChromeView(UIView *view);
+BOOL LGStockAlphaShouldSuppress(UIView *material, CGFloat alpha);
+void LGStockAlphaSuppressed(UIView *material);
 
 #pragma mark - registered material lifecycle
 

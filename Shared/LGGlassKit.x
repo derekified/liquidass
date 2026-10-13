@@ -126,11 +126,61 @@ void lgTrackGlass(UIView *glass, NSString *prefix, UIView *material) {
     [sGlassRecs setObject:rec forKey:glass];
 }
 
+static const void *kLGAlphaForwardKey = &kLGAlphaForwardKey;
+
+BOOL LGIsIconHostView(UIView *view) {
+    return [NSStringFromClass(view.class) containsString:@"Icon"];
+}
+
+BOOL LGIsStockChromeView(UIView *view) {
+    if (!view || [view isKindOfClass:LGLiveBackdropView.class] || LGIsIconHostView(view)) return NO;
+    NSString *name = NSStringFromClass(view.class);
+    return [name isEqualToString:@"SBWallpaperEffectView"] ||
+           [name isEqualToString:@"MTMaterialView"] ||
+           [name isEqualToString:@"SBFolderIconBackgroundView"] ||
+           [name isEqualToString:@"SBFolderBackgroundView"] ||
+           [name containsString:@"Wallpaper"] ||
+           [name containsString:@"Backdrop"] ||
+           [name containsString:@"Material"] ||
+           [name containsString:@"Blur"] ||
+           [name containsString:@"Background"];
+}
+
 void lgSuppressStock(UIView *v, NSString *prefix, BOOL setHidden) {
     if (!v || !prefix.length) return;
-    if (setHidden) v.hidden = YES;
+    if (setHidden) {
+        v.hidden = YES;
+        v.alpha = 0.0;
+        v.opaque = NO;
+        v.layer.opacity = 0.0;
+    }
     if (!sSuppressed) sSuppressed = [NSMapTable weakToStrongObjectsMapTable];
     [sSuppressed setObject:prefix forKey:v];
+}
+
+void lgRestoreStock(UIView *view) {
+    if (!view) return;
+    view.hidden = NO;
+    view.alpha = 1.0;
+    view.layer.opacity = 1.0;
+    [sSuppressed removeObjectForKey:view];
+}
+
+BOOL LGStockAlphaShouldSuppress(UIView *material, CGFloat alpha) {
+    if (!LGMaterialHasGlass(material, kGlassKey)) return NO;
+    if (objc_getAssociatedObject(material, kLGAlphaForwardKey)) return NO;
+    UIView *glass = objc_getAssociatedObject(material, kGlassKey);
+    glass.hidden = alpha <= 0.001;
+    glass.alpha = alpha;
+    objc_setAssociatedObject(material, kLGAlphaForwardKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    return YES;
+}
+
+void LGStockAlphaSuppressed(UIView *material) {
+    material.hidden = YES;
+    material.alpha = 0.0;
+    material.layer.opacity = 0.0;
+    objc_setAssociatedObject(material, kLGAlphaForwardKey, nil, OBJC_ASSOCIATION_ASSIGN);
 }
 
 #pragma mark - registered material lifecycle
@@ -240,7 +290,7 @@ static void lgReconcileInjectionsForDisable(void) {
     }
     for (UIView *v in sSuppressed.keyEnumerator.allObjects) {
         NSString *p = [sSuppressed objectForKey:v];
-        if (p && !lgHostEnabled(p)) { v.hidden = NO; [sSuppressed removeObjectForKey:v]; }
+        if (p && !lgHostEnabled(p)) lgRestoreStock(v);
     }
 }
 
@@ -282,6 +332,16 @@ __attribute__((constructor)) static void lgGlassInitEnableObserver(void) {
     %orig(hidden);
 }
 
+- (void)setAlpha:(CGFloat)alpha {
+    UIView *material = (UIView *)self;
+    if (LGStockAlphaShouldSuppress(material, alpha)) {
+        %orig(0);
+        LGStockAlphaSuppressed(material);
+        return;
+    }
+    %orig(alpha);
+}
+
 - (void)setFrame:(CGRect)frame {
     %orig(frame);
     LGResyncGlassGeometry((UIView *)self, kGlassKey);
@@ -316,6 +376,16 @@ __attribute__((constructor)) static void lgGlassInitEnableObserver(void) {
 - (void)setHidden:(BOOL)hidden {
     if (LGMaterialHasGlass((UIView *)self, kGlassKey)) hidden = YES;
     %orig(hidden);
+}
+
+- (void)setAlpha:(CGFloat)alpha {
+    UIView *material = (UIView *)self;
+    if (LGStockAlphaShouldSuppress(material, alpha)) {
+        %orig(0);
+        LGStockAlphaSuppressed(material);
+        return;
+    }
+    %orig(alpha);
 }
 
 - (void)setFrame:(CGRect)frame {
