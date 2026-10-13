@@ -10,21 +10,87 @@ void LGLog(NSString *format, ...) NS_FORMAT_FUNCTION(1, 2);
 
 #define LG_KIT_MAX_RECTANGLES 16
 
-const LGKitGlassParameters LGKitGlassParametersRegular = {
-    .glassThickness = 10.0,
-    .refractiveIndex = 1.5,
-    .dispersionStrength = 5.0,
-    .fresnelDistanceRange = 70.0,
-    .fresnelIntensity = 0.0,
-    .fresnelEdgeSharpness = 0.0,
-    .glareDistanceRange = 30.0,
-    .glareAngleConvergence = 0.1,
-    .glareOppositeSideBias = 1.0,
-    .glareIntensity = 0.1,
-    .glareEdgeSharpness = -0.15,
-    .backgroundTextureScaleCoefficient = 0.2,
-    .backgroundTextureBlurRadius = 0.3,
-};
+LGKitGlassParameters LGKitGlassParametersRegular(void) {
+    return (LGKitGlassParameters){
+        .glassThickness = 10.0,
+        .refractiveIndex = 1.5,
+        .dispersionStrength = 5.0,
+        .fresnelDistanceRange = 70.0,
+        .fresnelIntensity = 0.0,
+        .fresnelEdgeSharpness = 0.0,
+        .glareDistanceRange = 30.0,
+        .glareAngleConvergence = 0.1,
+        .glareOppositeSideBias = 1.0,
+        .glareIntensity = 0.1,
+        .glareEdgeSharpness = -0.15,
+        .glareDirectionOffset = -M_PI_4,
+        .backgroundTextureSizeCoefficient = 1.0,
+        .backgroundTextureScaleCoefficient = 0.2,
+        .backgroundTextureBlurRadius = 0.3,
+        .shadowOverlay = NO,
+    };
+}
+
+LGKitGlassParameters LGKitGlassParametersThumb(CGFloat magnification) {
+    magnification = MAX(0.05, magnification);
+    return (LGKitGlassParameters){
+        .glassThickness = 10.0,
+        .refractiveIndex = 1.11,
+        .dispersionStrength = 5.0,
+        .fresnelDistanceRange = 70.0,
+        .fresnelIntensity = 0.0,
+        .fresnelEdgeSharpness = 0.0,
+        .glareDistanceRange = 30.0,
+        .glareAngleConvergence = 0.0,
+        .glareOppositeSideBias = 0.0,
+        .glareIntensity = 0.01,
+        .glareEdgeSharpness = -0.2,
+        .glareDirectionOffset = M_PI * 0.9,
+        .backgroundTextureSizeCoefficient = 1.0 / magnification,
+        .backgroundTextureScaleCoefficient = magnification,
+        .backgroundTextureBlurRadius = 0.0,
+        .shadowOverlay = YES,
+    };
+}
+
+LGKitGlassParameters LGKitGlassParametersLens(void) {
+    return (LGKitGlassParameters){
+        .glassThickness = 6.0,
+        .refractiveIndex = 1.1,
+        .dispersionStrength = 15.0,
+        .fresnelDistanceRange = 70.0,
+        .fresnelIntensity = 0.0,
+        .fresnelEdgeSharpness = 0.0,
+        .glareDistanceRange = 30.0,
+        .glareAngleConvergence = 0.1,
+        .glareOppositeSideBias = 1.0,
+        .glareIntensity = 0.1,
+        .glareEdgeSharpness = -0.1,
+        .glareDirectionOffset = -M_PI_4,
+        .backgroundTextureSizeCoefficient = 1.1,
+        .backgroundTextureScaleCoefficient = 0.8,
+        .backgroundTextureBlurRadius = 0.0,
+        .shadowOverlay = YES,
+    };
+}
+
+UIColor *LGKitGlassRegularTint(BOOL dark) {
+    return dark ? [UIColor colorWithRed:0.0 green:0.04958364581 blue:0.09951775161 alpha:0.7981493615]
+                : [UIColor colorWithRed:0.9023525731 green:0.9509486998 blue:1.0 alpha:0.8002892298];
+}
+
+UIColor *LGKitGlassThumbTint(void) {
+    return [UIColor colorWithRed:0.9 green:0.95 blue:1.0 alpha:0.15];
+}
+
+BOOL LGKitGlassLowMemoryDevice(void) {
+    static BOOL low;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        low = NSProcessInfo.processInfo.physicalMemory <= 1536ull * 1024ull * 1024ull;
+    });
+    return low;
+}
 
 // Must match ShaderUniforms in kLGKitShaderSource; simd types give Metal's alignment.
 typedef struct {
@@ -327,7 +393,10 @@ fragment half4 liquidGlassEffect(VertexOutput input [[stage_in]],
         return nil;
     }
     NSError *error = nil;
-    id<MTLLibrary> library = [_device newLibraryWithSource:kLGKitShaderSource options:[MTLCompileOptions new] error:&error];
+    MTLCompileOptions *options = [MTLCompileOptions new];
+    options.languageVersion = MTLLanguageVersion2_1;
+    options.fastMathEnabled = YES;
+    id<MTLLibrary> library = [_device newLibraryWithSource:kLGKitShaderSource options:options error:&error];
     id<MTLFunction> vertexFunction = [library newFunctionWithName:@"fullscreenQuad"];
     id<MTLFunction> fragmentFunction = [library newFunctionWithName:@"liquidGlassEffect"];
     if (!vertexFunction || !fragmentFunction) {
@@ -468,20 +537,142 @@ fragment half4 liquidGlassEffect(VertexOutput input [[stage_in]],
 
 @end
 
+#pragma mark - Shared display link
+
+static NSInteger sLGKitCaptureBudget;
+static NSInteger sLGKitDrawBudget;
+
+@class LGKitGlassView;
+
+@interface LGKitGlassView (LGDriver)
+- (void)lgRenderTick;
+@end
+
+@interface LGKitGlassDriver : NSObject
++ (instancetype)shared;
+- (void)addView:(LGKitGlassView *)view;
+- (void)removeView:(LGKitGlassView *)view;
+@property (nonatomic, assign) NSInteger preferredFramesPerSecond;
+@end
+
+@implementation LGKitGlassDriver {
+    NSHashTable<LGKitGlassView *> *_views;
+    CADisplayLink *_link;
+    NSInteger _preferredFramesPerSecond;
+}
+
++ (instancetype)shared {
+    static LGKitGlassDriver *driver;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ driver = [LGKitGlassDriver new]; });
+    return driver;
+}
+
+- (instancetype)init {
+    self = [super init];
+    if (!self) return nil;
+    _views = [NSHashTable weakObjectsHashTable];
+    _preferredFramesPerSecond = LGKitGlassLowMemoryDevice() ? 30 : 60;
+    return self;
+}
+
+- (void)setPreferredFramesPerSecond:(NSInteger)fps {
+    fps = MAX(15, MIN(60, fps));
+    if (LGKitGlassLowMemoryDevice()) fps = MIN(fps, 30);
+    if (_preferredFramesPerSecond == fps) return;
+    _preferredFramesPerSecond = fps;
+    _link.preferredFramesPerSecond = fps;
+}
+
+- (void)addView:(LGKitGlassView *)view {
+    if (!view) return;
+    [_views addObject:view];
+    if (_link) return;
+    _link = [CADisplayLink displayLinkWithTarget:self selector:@selector(tick:)];
+    _link.preferredFramesPerSecond = _preferredFramesPerSecond;
+    [_link addToRunLoop:NSRunLoop.mainRunLoop forMode:NSRunLoopCommonModes];
+}
+
+- (void)removeView:(LGKitGlassView *)view {
+    [_views removeObject:view];
+    if (_views.allObjects.count > 0) return;
+    [_link invalidate];
+    _link = nil;
+}
+
+- (void)tick:(__unused CADisplayLink *)link {
+    BOOL lowMemory = LGKitGlassLowMemoryDevice();
+    sLGKitCaptureBudget = lowMemory ? 2 : 6;
+    sLGKitDrawBudget = lowMemory ? 3 : 8;
+    for (LGKitGlassView *view in _views.allObjects) [view lgRenderTick];
+}
+
+@end
+
+#pragma mark - Shadow
+
+// LiquidGlassKit's ShadowView. Rasterized only while the glass is standing
+// still; the metal layer itself is left alone because caching it drops the drawable.
+@interface LGKitShadowView : UIView
+@property (nonatomic, assign) CGFloat lgCornerRadius;
+@end
+
+@implementation LGKitShadowView
+
+- (instancetype)initWithFrame:(CGRect)frame {
+    self = [super initWithFrame:frame];
+    if (!self) return nil;
+    self.userInteractionEnabled = NO;
+    self.backgroundColor = UIColor.clearColor;
+    self.layer.compositingFilter = @"multiplyBlendMode";
+    self.layer.drawsAsynchronously = YES;
+    return self;
+}
+
+- (void)layoutSubviews {
+    [super layoutSubviews];
+    CGFloat shadowRadius = 3.5;
+    CGFloat corner = _lgCornerRadius > 0.0 ? _lgCornerRadius : CGRectGetHeight(self.bounds) * 0.5;
+    UIBezierPath *path = [UIBezierPath bezierPathWithRoundedRect:CGRectInset(self.bounds, -1.0, -shadowRadius * 0.5)
+                                                    cornerRadius:corner];
+    UIBezierPath *inner = [UIBezierPath bezierPathWithRoundedRect:CGRectInset(self.bounds, 0.0, shadowRadius * 0.5)
+                                                     cornerRadius:MAX(0.0, corner - shadowRadius * 0.5)];
+    [path appendPath:inner.bezierPathByReversingPath];
+    self.layer.shadowPath = path.CGPath;
+    self.layer.shadowRadius = shadowRadius;
+    self.layer.shadowOpacity = 0.2f;
+    self.layer.shadowOffset = CGSizeMake(0.0, shadowRadius + 2.0);
+}
+
+@end
+
 #pragma mark - Glass view
 
 @implementation LGKitGlassView {
     LGKitBackdropView *_backdropView;
+    LGKitShadowView *_shadowView;
     LGKitZeroCopyBridge *_zeroCopyBridge;
     id<MTLTexture> _backgroundTexture;
     MPSImageGaussianBlur *_blur;
     float _blurSigma;
     size_t _bufferWidth;
     size_t _bufferHeight;
+    uint32_t _phase;
+    NSInteger _stillFrames;
+    BOOL _frozen;
+    BOOL _captureThisFrame;
+    BOOL _uniformsDirty;
+    BOOL _hasPresented;
+    NSTimeInterval _nextCaptureTime;
+    CGRect _lastWindowFrame;
 }
 
 + (BOOL)lgEngineAvailable {
     return LGKitRenderer.shared != nil;
+}
+
++ (void)lgSetPreferredFramesPerSecond:(NSInteger)framesPerSecond {
+    LGKitGlassDriver.shared.preferredFramesPerSecond = framesPerSecond;
 }
 
 - (instancetype)initWithFrame:(CGRect)frame {
@@ -492,21 +683,36 @@ fragment half4 liquidGlassEffect(VertexOutput input [[stage_in]],
     _zeroCopyBridge = [[LGKitZeroCopyBridge alloc] initWithDevice:renderer.device];
     if (!_zeroCopyBridge) return nil;
     _backdropView = [LGKitBackdropView new];
-    _lgParameters = LGKitGlassParametersRegular;
+    _lgParameters = LGKitGlassParametersRegular();
     _lgShapeRect = CGRectNull;
-    _lgGlareDirectionOffset = -M_PI_4;
+    _lgGlareDirectionOffset = _lgParameters.glareDirectionOffset;
+    _lgDrawableScale = LGKitGlassLowMemoryDevice() ? 0.5 : 1.0;
+    _uniformsDirty = YES;
+    _lastWindowFrame = CGRectNull;
+    static uint32_t sPhase;
+    _phase = sPhase++;
     self.colorPixelFormat = MTLPixelFormatBGRA8Unorm;
     self.clearColor = MTLClearColorMake(0.0, 0.0, 0.0, 0.0);
+    self.framebufferOnly = YES;
     self.userInteractionEnabled = NO;
     self.opaque = NO;
     self.layer.opaque = NO;
     self.backgroundColor = UIColor.clearColor;
+    self.layer.drawsAsynchronously = YES;
     self.enableSetNeedsDisplay = NO;
     self.paused = YES;
+    self.contentScaleFactor = UIScreen.mainScreen.scale * _lgDrawableScale;
+    if ([self.layer isKindOfClass:CAMetalLayer.class]) {
+        CAMetalLayer *metal = (CAMetalLayer *)self.layer;
+        metal.presentsWithTransaction = NO;
+        if ([metal respondsToSelector:@selector(setMaximumDrawableCount:)]) metal.maximumDrawableCount = 2;
+        if ([metal respondsToSelector:@selector(setAllowsNextDrawableTimeout:)]) metal.allowsNextDrawableTimeout = YES;
+    }
     return self;
 }
 
 - (void)dealloc {
+    [[LGKitGlassDriver shared] removeView:self];
     [_backdropView removeFromSuperview];
 }
 
@@ -517,87 +723,280 @@ fragment half4 liquidGlassEffect(VertexOutput input [[stage_in]],
 
 - (void)didMoveToWindow {
     [super didMoveToWindow];
-    [self lgUpdatePaused];
+    if (self.window) [[LGKitGlassDriver shared] addView:self];
+    else [[LGKitGlassDriver shared] removeView:self];
+    _uniformsDirty = YES;
+    _frozen = NO;
+    _nextCaptureTime = 0.0;
 }
 
 - (void)setHidden:(BOOL)hidden {
     [super setHidden:hidden];
     _backdropView.hidden = hidden;
-    [self lgUpdatePaused];
+    if (!hidden) {
+        _uniformsDirty = YES;
+        _frozen = NO;
+        _nextCaptureTime = 0.0;
+    }
 }
 
-- (void)lgUpdatePaused {
-    self.paused = !self.window || self.hidden;
-}
-
-- (void)setLgParameters:(LGKitGlassParameters)parameters {
-    BOOL scaleChanged = fabs(parameters.backgroundTextureScaleCoefficient -
-                             _lgParameters.backgroundTextureScaleCoefficient) > 0.001;
-    _lgParameters = parameters;
-    if (scaleChanged) [self setNeedsLayout];
-}
-
-- (CGFloat)lgContentsScale {
+- (CGFloat)lgScreenScale {
     CGFloat scale = self.window.screen.scale;
     return scale > 0.0 ? scale : UIScreen.mainScreen.scale;
 }
 
+- (NSTimeInterval)lgIdleInterval {
+    return LGKitGlassLowMemoryDevice() ? 0.5 : (1.0 / 15.0);
+}
+
+- (CGFloat)lgCaptureScaleCoefficient {
+    CGFloat scale = _lgParameters.backgroundTextureScaleCoefficient;
+    if (!LGKitGlassLowMemoryDevice() || scale <= 0.0) return scale;
+    CGFloat sizeC = MAX(0.05, _lgParameters.backgroundTextureSizeCoefficient);
+    CGFloat screen = [self lgScreenScale];
+    CGFloat pixels = CGRectGetWidth(self.bounds) * CGRectGetHeight(self.bounds) *
+                     sizeC * sizeC * scale * scale * screen * screen;
+    CGFloat budget = 160.0 * 160.0;
+    if (pixels <= budget || pixels <= 1.0) return scale;
+    return scale * sqrt(budget / pixels);
+}
+
+- (CGFloat)lgContextScale {
+    CGFloat scale = [self lgScreenScale] * [self lgCaptureScaleCoefficient];
+    CGFloat sizeC = MAX(0.05, _lgParameters.backgroundTextureSizeCoefficient);
+    CGFloat maxEdge = MAX(CGRectGetWidth(self.bounds), CGRectGetHeight(self.bounds)) * sizeC * scale;
+    if (maxEdge > 1024.0) scale *= 1024.0 / maxEdge;
+    return MAX(0.05, scale);
+}
+
+- (void)setLgDrawableScale:(CGFloat)scale {
+    scale = MAX(0.25, MIN(1.0, scale));
+    if (fabs(_lgDrawableScale - scale) < 0.01) return;
+    _lgDrawableScale = scale;
+    self.contentScaleFactor = [self lgScreenScale] * scale;
+    _uniformsDirty = YES;
+}
+
+- (void)setLgParameters:(LGKitGlassParameters)parameters {
+    BOOL captureChanged = fabs(parameters.backgroundTextureScaleCoefficient -
+                               _lgParameters.backgroundTextureScaleCoefficient) > 0.001 ||
+                          fabs(parameters.backgroundTextureSizeCoefficient -
+                               _lgParameters.backgroundTextureSizeCoefficient) > 0.001;
+    BOOL shadowChanged = parameters.shadowOverlay != _lgParameters.shadowOverlay;
+    _lgParameters = parameters;
+    _uniformsDirty = YES;
+    if (captureChanged) {
+        _nextCaptureTime = 0.0;
+        [self setNeedsLayout];
+    }
+    if (shadowChanged) [self lgUpdateShadow];
+}
+
+- (void)setLgTintColor:(UIColor *)tintColor {
+    _lgTintColor = tintColor;
+    _uniformsDirty = YES;
+}
+
+- (void)setLgShapeRect:(CGRect)rect {
+    if (CGRectEqualToRect(_lgShapeRect, rect)) return;
+    _lgShapeRect = rect;
+    _uniformsDirty = YES;
+}
+
+- (void)setLgCornerRadius:(CGFloat)radius {
+    if (fabs(_lgCornerRadius - radius) < 0.01) return;
+    _lgCornerRadius = radius;
+    _shadowView.lgCornerRadius = radius;
+    [_shadowView setNeedsLayout];
+    _uniformsDirty = YES;
+}
+
+- (void)setLgGlareDirectionOffset:(CGFloat)angle {
+    if (fabs(_lgGlareDirectionOffset - angle) < 0.01) return;
+    _lgGlareDirectionOffset = angle;
+    _uniformsDirty = YES;
+}
+
+- (void)lgUpdateShadow {
+    if (!_lgParameters.shadowOverlay) {
+        [_shadowView removeFromSuperview];
+        _shadowView = nil;
+        return;
+    }
+    if (!_shadowView) {
+        _shadowView = [LGKitShadowView new];
+        [self addSubview:_shadowView];
+    }
+    _shadowView.lgCornerRadius = _lgCornerRadius;
+    if (!CGRectEqualToRect(_shadowView.frame, self.bounds)) _shadowView.frame = self.bounds;
+}
+
+- (void)lgFreeze {
+    if (_frozen) return;
+    _frozen = YES;
+    _shadowView.layer.shouldRasterize = YES;
+    _shadowView.layer.rasterizationScale = [self lgScreenScale];
+    _shadowView.layer.drawsAsynchronously = YES;
+}
+
+- (CGRect)lgWindowFrame {
+    CALayer *layer = self.layer.presentationLayer ?: self.layer;
+    return [layer convertRect:layer.bounds toLayer:nil];
+}
+
+- (BOOL)lgOnScreen {
+    if (!self.window || self.hidden || self.alpha <= 0.01 || CGRectIsEmpty(self.bounds)) return NO;
+    return CGRectIntersectsRect([self lgWindowFrame], self.window.bounds);
+}
+
+- (BOOL)lgPresentationMoved {
+    CGRect frame = [self lgWindowFrame];
+    BOOL moved = CGRectIsNull(_lastWindowFrame) ||
+                 fabs(frame.origin.x - _lastWindowFrame.origin.x) > 0.5 ||
+                 fabs(frame.origin.y - _lastWindowFrame.origin.y) > 0.5 ||
+                 fabs(frame.size.width - _lastWindowFrame.size.width) > 0.5 ||
+                 fabs(frame.size.height - _lastWindowFrame.size.height) > 0.5;
+    _lastWindowFrame = frame;
+    return moved;
+}
+
+- (void)lgRenderTick {
+    if (![self lgOnScreen]) return;
+    BOOL moved = [self lgPresentationMoved];
+    if (moved) {
+        _stillFrames = 0;
+        _frozen = NO;
+        _shadowView.layer.shouldRasterize = NO;
+    }
+    NSTimeInterval now = CACurrentMediaTime();
+    BOOL captureDue = moved || !_backgroundTexture || now >= _nextCaptureTime;
+    if (captureDue && sLGKitCaptureBudget <= 0) {
+        if (_backgroundTexture && !moved) captureDue = NO;
+        else {
+            _nextCaptureTime = 0.0;
+            return;
+        }
+    }
+    if (!captureDue && !_uniformsDirty && _hasPresented) {
+        if (!moved && ++_stillFrames >= 8) [self lgFreeze];
+        return;
+    }
+    if (sLGKitDrawBudget <= 0) return;
+    sLGKitDrawBudget--;
+    if (captureDue) sLGKitCaptureBudget--;
+    _captureThisFrame = captureDue;
+    [self draw];
+    if (captureDue && _backgroundTexture) {
+        NSTimeInterval interval = [self lgIdleInterval];
+        if (_nextCaptureTime <= 0.0)
+            _nextCaptureTime = now + interval * ((_phase % 8) + 1) / 8.0;
+        else
+            _nextCaptureTime = now + interval;
+    }
+    if (!moved && _hasPresented && ++_stillFrames >= 8) [self lgFreeze];
+}
+
 - (void)layoutSubviews {
     [super layoutSubviews];
-    CGFloat scale = [self lgContentsScale] * _lgParameters.backgroundTextureScaleCoefficient;
-    size_t width = (size_t)MAX(1.0, ceil(CGRectGetWidth(self.bounds) * scale));
-    size_t height = (size_t)MAX(1.0, ceil(CGRectGetHeight(self.bounds) * scale));
+    CGFloat screen = [self lgScreenScale];
+    CGFloat wantDrawable = screen * _lgDrawableScale;
+    if (fabs(self.contentScaleFactor - wantDrawable) > 0.01) self.contentScaleFactor = wantDrawable;
+    CGFloat contextScale = [self lgContextScale];
+    CGFloat sizeC = MAX(0.05, _lgParameters.backgroundTextureSizeCoefficient);
+    size_t width = (size_t)MAX(1.0, ceil(CGRectGetWidth(self.bounds) * contextScale * sizeC));
+    size_t height = (size_t)MAX(1.0, ceil(CGRectGetHeight(self.bounds) * contextScale * sizeC));
     if (width != _bufferWidth || height != _bufferHeight) {
         _bufferWidth = width;
         _bufferHeight = height;
         _backgroundTexture = nil;
+        _nextCaptureTime = 0.0;
         [_zeroCopyBridge setupBufferWithWidth:width height:height];
     }
+    [self lgUpdateShadow];
 }
 
 #pragma mark Background capture
 
+- (BOOL)lgBackdropCaptureAvailable {
+    Class backdrop = NSClassFromString(@"CABackdropLayer");
+    return backdrop && [_backdropView.layer isKindOfClass:backdrop];
+}
+
 - (void)captureBackdrop {
     UIView *superview = self.superview;
     if (!superview) return;
-    CGFloat scaleCoefficient = [self lgContentsScale] * _lgParameters.backgroundTextureScaleCoefficient;
-
-    // The presentation layer carries the in-flight frame during UIView animations.
+    if (![self lgBackdropCaptureAvailable]) {
+        [self captureRootView];
+        return;
+    }
+    CGFloat sizeC = MAX(0.05, _lgParameters.backgroundTextureSizeCoefficient);
+    CGFloat contextScale = [self lgContextScale];
     CALayer *currentLayer = self.layer.presentationLayer ?: self.layer;
-    CGRect captureRect = [currentLayer convertRect:currentLayer.bounds toLayer:superview.layer];
+    CGRect frame = [currentLayer convertRect:currentLayer.bounds toLayer:superview.layer];
+    CGSize captureSize = CGSizeMake(CGRectGetWidth(frame) * sizeC, CGRectGetHeight(frame) * sizeC);
+    CGRect captureRect = CGRectMake(CGRectGetMidX(frame) - captureSize.width * 0.5,
+                                    CGRectGetMidY(frame) - captureSize.height * 0.5,
+                                    captureSize.width, captureSize.height);
 
     [CATransaction begin];
     [CATransaction setDisableActions:YES];
     if (!CGRectEqualToRect(_backdropView.frame, captureRect)) _backdropView.frame = captureRect;
     if (_backdropView.superview != superview) [superview insertSubview:_backdropView belowSubview:self];
+    _backdropView.hidden = self.hidden;
     [CATransaction commit];
 
     BOOL serverBlur = !LGKitRenderer.shared.supportsMPS;
     [_backdropView lgSetCaptureBlurRadius:serverBlur
-        ? _lgParameters.backgroundTextureBlurRadius / MAX(0.01, _lgParameters.backgroundTextureScaleCoefficient)
+        ? _lgParameters.backgroundTextureBlurRadius / MAX(0.01, [self lgCaptureScaleCoefficient])
         : 0.0];
 
     LGKitBackdropView *backdropView = _backdropView;
     _backgroundTexture = [_zeroCopyBridge renderWithActions:^(CGContextRef context) {
         CGContextClearRect(context, CGRectMake(0, 0, CGBitmapContextGetWidth(context), CGBitmapContextGetHeight(context)));
-        CGContextScaleCTM(context, scaleCoefficient, scaleCoefficient);
+        CGContextScaleCTM(context, contextScale, contextScale);
         UIGraphicsPushContext(context);
         [backdropView drawViewHierarchyInRect:backdropView.bounds afterScreenUpdates:NO];
         UIGraphicsPopContext();
     }];
 }
 
+- (void)captureRootView {
+    UIView *root = self.superview;
+    while (root.superview) root = root.superview;
+    if (!root) return;
+    CGFloat sizeC = MAX(0.05, _lgParameters.backgroundTextureSizeCoefficient);
+    CGFloat contextScale = [self lgContextScale];
+    CALayer *currentLayer = self.layer.presentationLayer ?: self.layer;
+    CGRect frame = [currentLayer convertRect:currentLayer.bounds toLayer:root.layer];
+    CGSize captureSize = CGSizeMake(CGRectGetWidth(frame) * sizeC, CGRectGetHeight(frame) * sizeC);
+    CGRect captureRect = CGRectMake(CGRectGetMidX(frame) - captureSize.width * 0.5,
+                                    CGRectGetMidY(frame) - captureSize.height * 0.5,
+                                    captureSize.width, captureSize.height);
+    BOOL wasHidden = self.hidden;
+    self.hidden = YES;
+    _backgroundTexture = [_zeroCopyBridge renderWithActions:^(CGContextRef context) {
+        CGContextClearRect(context, CGRectMake(0, 0, CGBitmapContextGetWidth(context), CGBitmapContextGetHeight(context)));
+        CGContextScaleCTM(context, contextScale, contextScale);
+        CGContextTranslateCTM(context, -CGRectGetMinX(captureRect), -CGRectGetMinY(captureRect));
+        CALayer *rootLayer = root.layer.presentationLayer ?: root.layer;
+        [rootLayer renderInContext:context];
+    }];
+    self.hidden = wasHidden;
+}
+
 - (void)encodeBlurIntoCommandBuffer:(id<MTLCommandBuffer>)commandBuffer {
     LGKitRenderer *renderer = LGKitRenderer.shared;
     if (!renderer.supportsMPS || _lgParameters.backgroundTextureBlurRadius <= 0.0 || !_backgroundTexture) return;
-    float sigma = (float)(_lgParameters.backgroundTextureBlurRadius * [self lgContentsScale]);
+    float sigma = (float)(_lgParameters.backgroundTextureBlurRadius * [self lgScreenScale]);
     if (!_blur || fabsf(_blurSigma - sigma) > 0.001f) {
         _blur = [[MPSImageGaussianBlur alloc] initWithDevice:renderer.device sigma:sigma];
         _blur.edgeMode = MPSImageEdgeModeClamp;
         _blurSigma = sigma;
     }
     id<MTLTexture> texture = _backgroundTexture;
-    MPSCopyAllocator allocator = ^id<MTLTexture> NS_RETURNS_RETAINED (MPSKernel *kernel, id<MTLCommandBuffer> buffer, id<MTLTexture> source) {
+    MPSCopyAllocator allocator = ^id<MTLTexture> NS_RETURNS_RETAINED (__unused MPSKernel *kernel,
+                                                                      id<MTLCommandBuffer> buffer,
+                                                                      id<MTLTexture> source) {
         MTLTextureDescriptor *descriptor =
             [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:source.pixelFormat
                                                                width:source.width
@@ -616,7 +1015,7 @@ fragment half4 liquidGlassEffect(VertexOutput input [[stage_in]],
 - (LGKitShaderUniforms)currentUniforms {
     LGKitShaderUniforms uniforms;
     memset(&uniforms, 0, sizeof(uniforms));
-    CGFloat scale = [self lgContentsScale];
+    CGFloat scale = [self lgScreenScale];
     CGRect bounds = self.bounds;
     uniforms.resolution = simd_make_float2((float)(CGRectGetWidth(bounds) * scale),
                                            (float)(CGRectGetHeight(bounds) * scale));
@@ -625,7 +1024,6 @@ fragment half4 liquidGlassEffect(VertexOutput input [[stage_in]],
     uniforms.cornerRoundnessExponent = 2.0f;
 
     CGRect shape = (CGRectIsNull(_lgShapeRect) || CGRectIsEmpty(_lgShapeRect)) ? bounds : _lgShapeRect;
-    // The fullscreen quad puts uv (0,0) at the bottom-left, so rectangles are given bottom-up.
     uniforms.rectangleCount = 1;
     uniforms.rectangles[0] = simd_make_float4((float)CGRectGetMinX(shape),
                                               (float)(CGRectGetHeight(bounds) - CGRectGetMaxY(shape)),
@@ -655,15 +1053,15 @@ fragment half4 liquidGlassEffect(VertexOutput input [[stage_in]],
 
 #pragma mark Drawing
 
-- (void)drawRect:(CGRect)rect {
+- (void)drawRect:(__unused CGRect)rect {
     if (!self.window || CGRectIsEmpty(self.bounds)) return;
-    [self captureBackdrop];
+    if (_captureThisFrame) [self captureBackdrop];
     if (!_backgroundTexture) return;
 
     LGKitRenderer *renderer = LGKitRenderer.shared;
     id<MTLCommandBuffer> commandBuffer = [renderer.commandQueue commandBuffer];
     if (!commandBuffer) return;
-    [self encodeBlurIntoCommandBuffer:commandBuffer];
+    if (_captureThisFrame) [self encodeBlurIntoCommandBuffer:commandBuffer];
 
     id<CAMetalDrawable> drawable = self.currentDrawable;
     MTLRenderPassDescriptor *pass = self.currentRenderPassDescriptor;
@@ -672,6 +1070,7 @@ fragment half4 liquidGlassEffect(VertexOutput input [[stage_in]],
     if (!encoder) return;
 
     LGKitShaderUniforms uniforms = [self currentUniforms];
+    _uniformsDirty = NO;
     [encoder setRenderPipelineState:renderer.pipelineState];
     [encoder setFragmentBytes:&uniforms length:sizeof(uniforms) atIndex:0];
     [encoder setFragmentTexture:_backgroundTexture atIndex:0];
@@ -680,6 +1079,7 @@ fragment half4 liquidGlassEffect(VertexOutput input [[stage_in]],
 
     [commandBuffer presentDrawable:drawable];
     [commandBuffer commit];
+    _hasPresented = YES;
 }
 
 @end
