@@ -11,9 +11,9 @@ BUNDLE_NAME = LiquidAssPrefs
 LG_PACKAGE_VERSION := $(shell sed -n 's/^Version: //p' ../control | head -n 1)
 
 PREF_LOCAL_FILES := $(wildcard *.m)
-PREF_SHARED_FILES := ../Shared/LGSharedSupport.m ../Shared/LGLiveBackdropView.m ../Shared/LGFramework.m ../Shared/LGCompat.m
+PREF_SHARED_FILES := ../Shared/LGSharedSupport.m ../Shared/LGLiveBackdropView.m ../Shared/LGKitGlassView.m ../Shared/LGFramework.m ../Shared/LGCompat.m
 LiquidAssPrefs_FILES = $(PREF_LOCAL_FILES) $(PREF_SHARED_FILES)
-LiquidAssPrefs_FRAMEWORKS = UIKit QuartzCore CoreText CoreGraphics CoreMotion
+LiquidAssPrefs_FRAMEWORKS = UIKit QuartzCore CoreText CoreGraphics CoreMotion CoreVideo Metal MetalKit MetalPerformanceShaders
 LiquidAssPrefs_INSTALL_PATH = /Library/PreferenceBundles
 LiquidAssPrefs_CFLAGS = -fobjc-arc -I../Shared -DLG_PACKAGE_VERSION=@\"$(LG_PACKAGE_VERSION)\" $(LG_AVAILABILITY_CFLAGS)
 ifeq ($(THEOS_TARGET_NAME),iphone_simulator)
