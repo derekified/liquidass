@@ -29,7 +29,7 @@ liquidass_FILES     = Tweak.x \
                       $(wildcard Shared/*.[xm])
 liquidass_CFLAGS    = -fobjc-arc $(LG_AVAILABILITY_CFLAGS) -include $(CURDIR)/Shared/LGHookSafety.h
 liquidass_USE_MODULES = 0
-liquidass_FRAMEWORKS = UIKit QuartzCore CoreText CoreGraphics CoreMotion
+liquidass_FRAMEWORKS = UIKit QuartzCore CoreText CoreGraphics CoreMotion CoreVideo Metal MetalKit MetalPerformanceShaders
 ifeq ($(THEOS_PACKAGE_SCHEME),roothide)
 liquidass_LIBRARIES += roothide
 endif
