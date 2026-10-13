@@ -3,6 +3,7 @@
 #import "LGCoverSheetState.h"
 #import "LGCompat.h"
 #import "LGRendererState.h"
+#import "LGKitGlassView.h"
 #import <CoreMotion/CoreMotion.h>
 #import <QuartzCore/QuartzCore.h>
 #import <objc/message.h>
@@ -102,6 +103,23 @@ static BOOL LGHostUsesFallbackMaterial(enum LGHostIdentifier host) {
         default:
             return YES;
     }
+}
+
+// iOS 12 QuartzCore never composites the backboardd glass pass, so the LiquidGlassKit
+// engine renders in-process there; later systems use it only when backboardd gave up.
+static BOOL LGKitEngineWanted(enum LGHostIdentifier host) {
+    if (!LGHostUsesFallbackMaterial(host) || UIAccessibilityIsReduceTransparencyEnabled()) return NO;
+    if (!LGSystemVersionAtLeast(13)) return YES;
+    return LGRendererUnavailable();
+}
+
+static BOOL LGHostPreferenceNumber(NSString *prefix, NSString *suffix, CGFloat *value) {
+    id number = LGGlassPreferenceValue([prefix stringByAppendingString:suffix]);
+    if (![number isKindOfClass:NSNumber.class]) return NO;
+    double raw = [number doubleValue];
+    if (!isfinite(raw)) return NO;
+    *value = raw;
+    return YES;
 }
 
 static BOOL LGHostIsClearVariant(enum LGHostIdentifier host) {
@@ -483,6 +501,7 @@ static const CGFloat kLGGlassEdgeWidth = 1.0;
     CAShapeLayer    *_edge;
     UIView          *_nativeBlurView;
     LGFallbackMaterialView *_fallbackMaterialView;
+    LGKitGlassView  *_kitGlassView;
     BOOL             _captureEnabled;
     BOOL             _captureStateApplied;
     CGFloat          _nativeBlurRadius;
@@ -648,6 +667,78 @@ static const CGFloat kLGGlassEdgeWidth = 1.0;
     return [UIColor colorWithRed:rgba[0] green:rgba[1] blue:rgba[2] alpha:rgba[3]];
 }
 
+- (UIColor *)lgKitTintForHost:(const LGHostDefinition *)host clear:(BOOL)clear {
+    BOOL dark = self.traitCollection.userInterfaceStyle == UIUserInterfaceStyleDark;
+    NSString *prefix = [NSString stringWithUTF8String:host->preferencePrefix];
+    CGFloat rgba[4];
+    id configured = LGGlassPreferenceValue([prefix stringByAppendingString:
+        dark ? @".DarkTintColor" : @".LightTintColor"]);
+    if (!LGParseTintHex(configured, rgba)) {
+        if (!clear) {
+            return dark ? [UIColor colorWithRed:0.0 green:0.04958364581 blue:0.09951775161 alpha:0.7981493615]
+                        : [UIColor colorWithRed:0.9023525731 green:0.9509486998 blue:1.0 alpha:0.8002892298];
+        }
+        LGParseTintHex([NSString stringWithUTF8String:dark ? host->darkTintHex : host->lightTintHex], rgba);
+    }
+    return [UIColor colorWithRed:rgba[0] green:rgba[1] blue:rgba[2] alpha:rgba[3]];
+}
+
+- (BOOL)updateKitGlass {
+    const LGHostDefinition *host = LGHostDefinitionForFilterType(
+        (_lgFilterType ?: [NSString stringWithUTF8String:kLGHostRegistry[LGHostIdentifierDefault].filterType]).UTF8String);
+    enum LGHostIdentifier identifier = LGHostIdentifierForDefinition(host);
+    if (!host || !LGKitEngineWanted(identifier) || ![LGKitGlassView lgEngineAvailable]) {
+        if (_kitGlassView) {
+            [_kitGlassView removeFromSuperview];
+            _kitGlassView = nil;
+            LGLog(@"glass#%u LiquidGlassKit engine detached type=%@", _lgId, _lgFilterType ?: @"default");
+        }
+        return NO;
+    }
+    if (CGRectIsEmpty(self.bounds)) return YES;
+    if (!_kitGlassView) {
+        _kitGlassView = [[LGKitGlassView alloc] initWithFrame:self.bounds];
+        if (!_kitGlassView) return NO;
+        _kitGlassView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+        [self insertSubview:_kitGlassView atIndex:0];
+        LGLog(@"glass#%u LiquidGlassKit engine attached type=%@", _lgId, _lgFilterType ?: @"default");
+    }
+
+    BOOL clear = LGHostIsClearVariant(identifier);
+    NSString *prefix = [NSString stringWithUTF8String:host->preferencePrefix];
+    LGKitGlassParameters parameters = LGKitGlassParametersRegular;
+    CGFloat value = 0.0;
+    if (LGHostPreferenceNumber(prefix, @".BezelWidth", &value))
+        parameters.glassThickness = MAX(2.0, MIN(40.0, value * 0.5));
+    if (LGHostPreferenceNumber(prefix, @".RefractiveIndex", &value))
+        parameters.refractiveIndex = 1.0 + MAX(0.01, value - 1.0) * 0.625;
+    if (LGHostPreferenceNumber(prefix, @".DispersionStrength", &value))
+        parameters.dispersionStrength = MAX(0.0, value) * 2.5;
+    if (LGHostPreferenceNumber(prefix, @".DispersionEnabled", &value) && value == 0.0)
+        parameters.dispersionStrength = 0.0;
+    if (LGHostPreferenceNumber(prefix, @".Blur", &value))
+        parameters.backgroundTextureBlurRadius = MAX(0.0, value) * 0.3;
+    else if (clear)
+        parameters.backgroundTextureBlurRadius = 0.0;
+    if (clear) parameters.backgroundTextureScaleCoefficient = 0.5;
+    NSNumber *override = self.lgSpecularEnabledOverride;
+    BOOL specular = override ? override.boolValue : LGSpecularEnabledForFilterType(_lgFilterType);
+    if (!specular) parameters.glareIntensity = 0.0;
+
+    BOOL hasShape = !CGRectIsNull(_lgShapeRect) && !CGRectIsEmpty(_lgShapeRect);
+    [CATransaction begin];
+    [CATransaction setDisableActions:YES];
+    if (!CGRectEqualToRect(_kitGlassView.frame, self.bounds)) _kitGlassView.frame = self.bounds;
+    [CATransaction commit];
+    _kitGlassView.lgParameters = parameters;
+    _kitGlassView.lgShapeRect = hasShape ? _lgShapeRect : CGRectNull;
+    _kitGlassView.lgCornerRadius = hasShape ? _lgShapeCornerRadius : self.layer.cornerRadius;
+    _kitGlassView.lgTintColor = [self lgKitTintForHost:host clear:clear];
+    _kitGlassView.lgGlareDirectionOffset = sLGSpecularAngle;
+    _kitGlassView.preferredFramesPerSecond = LGQualityValue() >= 0.75 ? 60 : 30;
+    return YES;
+}
+
 - (BOOL)updateFallbackMaterial {
     const LGHostDefinition *host = LGHostDefinitionForFilterType(
         (_lgFilterType ?: [NSString stringWithUTF8String:kLGHostRegistry[LGHostIdentifierDefault].filterType]).UTF8String);
@@ -704,6 +795,12 @@ static const CGFloat kLGGlassEdgeWidth = 1.0;
 
 - (void)updateSpecular {
     if (CGRectIsEmpty(self.bounds)) return;
+    if (_kitGlassView) {
+        _specularLayer.hidden = YES;
+        _edge.hidden = YES;
+        [self updateKitGlass];
+        return;
+    }
 
     BOOL hasShape = !CGRectIsNull(_lgShapeRect) && !CGRectIsEmpty(_lgShapeRect);
     CGRect shapeRect = hasShape ? _lgShapeRect : self.bounds;
@@ -781,6 +878,7 @@ static const CGFloat kLGGlassEdgeWidth = 1.0;
 }
 
 - (void)applySpecularAngle:(CGFloat)angle {
+    _kitGlassView.lgGlareDirectionOffset = angle;
     if (!_specularLayer) return;
     CGFloat dx = cos(angle) * 0.5;
     CGFloat dy = sin(angle) * 0.5;
@@ -806,6 +904,24 @@ static const CGFloat kLGGlassEdgeWidth = 1.0;
 
             LGLayerSetValueIfSupported(layer, @"ignoresScreenClip", @YES);
             _backdropConfigured = YES;
+        }
+
+        if ([self updateKitGlass]) {
+            if (_fallbackMaterialView) {
+                [_fallbackMaterialView removeFromSuperview];
+                _fallbackMaterialView = nil;
+            }
+            [self updateNativeBlurOverlayWithRadius:0.0];
+            if (_captureEnabled || !_captureStateApplied) {
+                LGLayerSetValueIfSupported(layer, @"enabled", @NO);
+                _captureEnabled = NO;
+                _captureStateApplied = YES;
+            }
+            if (layer.filters.count) layer.filters = nil;
+            _filterAttached = NO;
+            _specularLayer.hidden = YES;
+            _edge.hidden = YES;
+            return;
         }
 
         CGFloat wantScale;
