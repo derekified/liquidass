@@ -26,7 +26,7 @@ static LGDockMode dockModeForMaterial(UIView *material) {
     BOOL floating = hasAncestorOfClassName(material, @"SBFloatingDockPlatterView");
     BOOL exact = isExactClass(material, @"MTMaterialView") ||
         (isExactClass(material, @"SBWallpaperEffectView") &&
-         isExactClass(material.superview, @"SBDockView"));
+         hasAncestorOfClassName(material, @"SBDockView"));
     BOOL stacked = dockInsideCategoryStackBackground(material);
     if (regular || floating)
         LGLog(@"[Dock] candidate class=%@ frame=%@ bounds=%@ scale=%.1f regular=%d floating=%d exact=%d stacked=%d",
@@ -101,22 +101,49 @@ static void configureDockGlass(UIView *material, LGLiveBackdropView *glass) {
           NSStringFromCGRect(glass.frame));
 }
 
+static UIView *dockBackgroundView(UIView *dock) {
+    UIView *background = nil;
+    @try { background = [dock valueForKey:@"_backgroundView"]; } @catch (__unused NSException *e) {}
+    return background;
+}
+
+static void lgStripDockChrome(UIView *dock) {
+    if (!dock || !lgHostEnabled(@"Dock")) return;
+    UIView *background = dockBackgroundView(dock);
+    if (background) lgDetachStock(background, @"Dock");
+    for (UIView *subview in [dock.subviews copy]) {
+        if (LGIsStockChromeView(subview)) lgDetachStock(subview, @"Dock");
+    }
+    dock.backgroundColor = UIColor.clearColor;
+    dock.opaque = NO;
+    UIView *glass = background ? objc_getAssociatedObject(background, kGlassKey) : nil;
+    if (!glass) return;
+    CGRect frame = (CGRectGetWidth(background.frame) > 1.0) ? background.frame : dock.bounds;
+    if (glass.superview != dock) [dock insertSubview:glass atIndex:0];
+    if (!CGRectEqualToRect(glass.frame, frame)) glass.frame = frame;
+}
+
 %group LGLegacyDockHooks
 
 %hook SBDockView
 
+- (void)layoutSubviews {
+    %orig;
+    lgStripDockChrome((UIView *)self);
+}
+
+- (void)didMoveToWindow {
+    %orig;
+    lgStripDockChrome((UIView *)self);
+}
+
 - (void)setBackgroundAlpha:(CGFloat)alpha {
     %orig;
-    UIView *background = nil;
-    @try { background = [(UIView *)self valueForKey:@"_backgroundView"]; } @catch (__unused NSException *e) {}
+    UIView *dock = (UIView *)self;
+    lgStripDockChrome(dock);
+    UIView *background = dockBackgroundView(dock);
     UIView *glass = background ? objc_getAssociatedObject(background, kGlassKey) : nil;
     if (!glass) return;
-    lgSuppressStock(background, @"Dock", YES);
-    for (UIView *subview in ((UIView *)self).subviews) {
-        if (LGIsStockChromeView(subview)) lgSuppressStock(subview, @"Dock", YES);
-    }
-    ((UIView *)self).backgroundColor = UIColor.clearColor;
-    ((UIView *)self).opaque = NO;
     glass.alpha = alpha;
     glass.hidden = alpha <= 0.001;
 }
