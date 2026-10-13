@@ -127,6 +127,7 @@ static void injectFolderIcon(UIView *mat) {
     if (!sFolderIconGlasses) sFolderIconGlasses = [NSHashTable weakObjectsHashTable];
     [sFolderIconGlasses addObject:g];
     g.hidden = anyOpenFolderActive() && g == sActiveFolderIconGlass;
+    lgDetachStock(mat, @"FolderIcon");
 }
 
 static void injectOpenFolder(UIView *mat) {
@@ -153,6 +154,7 @@ static void injectOpenFolder(UIView *mat) {
 }
 
 static void folderMaterialDidMoveToWindow(UIView *self_) {
+    if (!self_.window && LGStockViewIsDetached(self_)) return;
     if (!self_.window) {
         [sFolderIconMaterials removeObject:self_];
 
@@ -191,6 +193,7 @@ static void folderMaterialDidLayout(UIView *self_) {
 %hook SBFolderIconBackgroundView
 - (void)didMoveToWindow {
     %orig;
+    if (!((UIView *)self).window && LGStockViewIsDetached((UIView *)self)) return;
     folderMaterialDidMoveToWindow((UIView *)self);
 }
 - (void)layoutSubviews {
@@ -219,6 +222,7 @@ static void folderMaterialDidLayout(UIView *self_) {
 %hook SBFolderBackgroundView
 - (void)didMoveToWindow {
     %orig;
+    if (!((UIView *)self).window && LGStockViewIsDetached((UIView *)self)) return;
     folderMaterialDidMoveToWindow((UIView *)self);
 }
 - (void)layoutSubviews {

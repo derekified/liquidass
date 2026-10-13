@@ -135,6 +135,7 @@ BOOL LGIsIconHostView(UIView *view) {
 BOOL LGIsStockChromeView(UIView *view) {
     if (!view || [view isKindOfClass:LGLiveBackdropView.class] || LGIsIconHostView(view)) return NO;
     NSString *name = NSStringFromClass(view.class);
+    if ([name hasPrefix:@"LG"]) return NO;
     return [name isEqualToString:@"SBWallpaperEffectView"] ||
            [name isEqualToString:@"MTMaterialView"] ||
            [name isEqualToString:@"SBFolderIconBackgroundView"] ||
@@ -146,23 +147,62 @@ BOOL LGIsStockChromeView(UIView *view) {
            [name containsString:@"Background"];
 }
 
+static const void *kLGStockDetachedKey = &kLGStockDetachedKey;
+static const void *kLGDetachedParentKey = &kLGDetachedParentKey;
+static const void *kLGDetachedHoldKey = &kLGDetachedHoldKey;
+
 void lgSuppressStock(UIView *v, NSString *prefix, BOOL setHidden) {
     if (!v || !prefix.length) return;
     if (setHidden) {
+        // The setAlpha: hook forwards onto the glass unless this flag is set.
+        objc_setAssociatedObject(v, kLGAlphaForwardKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         v.hidden = YES;
         v.alpha = 0.0;
         v.opaque = NO;
+        v.backgroundColor = UIColor.clearColor;
         v.layer.opacity = 0.0;
+        v.layer.backgroundColor = UIColor.clearColor.CGColor;
+        objc_setAssociatedObject(v, kLGAlphaForwardKey, nil, OBJC_ASSOCIATION_ASSIGN);
     }
     if (!sSuppressed) sSuppressed = [NSMapTable weakToStrongObjectsMapTable];
     [sSuppressed setObject:prefix forKey:v];
 }
 
+BOOL LGStockViewIsDetached(UIView *view) {
+    return view && objc_getAssociatedObject(view, kLGStockDetachedKey) != nil;
+}
+
+void lgDetachStock(UIView *view, NSString *prefix) {
+    if (!view || !prefix.length) return;
+    if ([NSStringFromClass(view.class) hasPrefix:@"LG"]) return;
+    lgSuppressStock(view, prefix, YES);
+    UIView *parent = view.superview;
+    if (!parent) {
+        objc_setAssociatedObject(view, kLGStockDetachedKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        return;
+    }
+    NSMutableArray *held = objc_getAssociatedObject(parent, kLGDetachedHoldKey);
+    if (!held) {
+        held = [NSMutableArray array];
+        objc_setAssociatedObject(parent, kLGDetachedHoldKey, held, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+    if (![held containsObject:view]) [held addObject:view];
+    objc_setAssociatedObject(view, kLGDetachedParentKey, parent, OBJC_ASSOCIATION_ASSIGN);
+    objc_setAssociatedObject(view, kLGStockDetachedKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    [view removeFromSuperview];
+}
+
 void lgRestoreStock(UIView *view) {
     if (!view) return;
+    UIView *parent = objc_getAssociatedObject(view, kLGDetachedParentKey);
+    NSMutableArray *held = parent ? objc_getAssociatedObject(parent, kLGDetachedHoldKey) : nil;
+    [held removeObject:view];
+    objc_setAssociatedObject(view, kLGStockDetachedKey, nil, OBJC_ASSOCIATION_ASSIGN);
+    objc_setAssociatedObject(view, kLGDetachedParentKey, nil, OBJC_ASSOCIATION_ASSIGN);
     view.hidden = NO;
     view.alpha = 1.0;
     view.layer.opacity = 1.0;
+    if (parent && view.superview != parent) [parent insertSubview:view atIndex:0];
     [sSuppressed removeObjectForKey:view];
 }
 
@@ -271,6 +311,9 @@ static void lgRouteMaterialHost(UIView *material) {
         LGLiveBackdropView *glass = LGInstallRegisteredGlassInMaterial(
             material, kGlassKey, route.prefix, route.outset, radius, route.groupName);
         if (glass && route.postInstall) route.postInstall(material, glass);
+        if (glass && ([route.prefix isEqualToString:@"Dock"] ||
+                      [route.prefix isEqualToString:@"FolderIcon"]))
+            lgDetachStock(material, route.prefix);
         return;
     }
 }
@@ -319,6 +362,7 @@ __attribute__((constructor)) static void lgGlassInitEnableObserver(void) {
 
 - (void)didMoveToWindow {
     %orig;
+    if (!((UIView *)self).window && LGStockViewIsDetached((UIView *)self)) return;
     lgRouteMaterialHost((UIView *)self);
 }
 
@@ -365,6 +409,7 @@ __attribute__((constructor)) static void lgGlassInitEnableObserver(void) {
 
 - (void)didMoveToWindow {
     %orig;
+    if (!((UIView *)self).window && LGStockViewIsDetached((UIView *)self)) return;
     lgRouteMaterialHost((UIView *)self);
 }
 

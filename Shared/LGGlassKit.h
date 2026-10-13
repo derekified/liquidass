@@ -26,6 +26,10 @@ void lgTrackGlass(UIView *glass, NSString *prefix, UIView *material);
 
 void lgSuppressStock(UIView *v, NSString *prefix, BOOL setHidden);
 void lgRestoreStock(UIView *view);
+// Take a stock platter out of the hierarchy so it cannot be snapshotted.
+// The view stays retained by its old superview until lgRestoreStock.
+void lgDetachStock(UIView *view, NSString *prefix);
+BOOL LGStockViewIsDetached(UIView *view);
 
 BOOL LGIsIconHostView(UIView *view);
 BOOL LGIsStockChromeView(UIView *view);
