@@ -110,7 +110,15 @@ static void configureDockGlass(UIView *material, LGLiveBackdropView *glass) {
     UIView *background = nil;
     @try { background = [(UIView *)self valueForKey:@"_backgroundView"]; } @catch (__unused NSException *e) {}
     UIView *glass = background ? objc_getAssociatedObject(background, kGlassKey) : nil;
+    if (!glass) return;
+    lgSuppressStock(background, @"Dock", YES);
+    for (UIView *subview in ((UIView *)self).subviews) {
+        if (LGIsStockChromeView(subview)) lgSuppressStock(subview, @"Dock", YES);
+    }
+    ((UIView *)self).backgroundColor = UIColor.clearColor;
+    ((UIView *)self).opaque = NO;
     glass.alpha = alpha;
+    glass.hidden = alpha <= 0.001;
 }
 
 %end

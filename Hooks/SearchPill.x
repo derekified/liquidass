@@ -44,6 +44,12 @@ static void LGUpdatePageDotsPill(UIPageControl *control) {
                                  OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         lgTrackGlass(glass, @"SearchPill", nil);
     }
+    control.backgroundColor = UIColor.clearColor;
+    control.opaque = NO;
+    for (UIView *subview in control.subviews) {
+        if (subview == glass || !LGIsStockChromeView(subview)) continue;
+        lgSuppressStock(subview, @"SearchPill", YES);
+    }
     if (glass.superview != control || control.subviews.firstObject != glass)
         [control insertSubview:glass atIndex:0];
     if (!CGRectEqualToRect(glass.frame, frame)) glass.frame = frame;
