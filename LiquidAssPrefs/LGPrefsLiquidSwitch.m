@@ -36,14 +36,14 @@ static UIColor *LGSwitchEffectiveAccentColor(UISwitch *toggle) {
         toggle.window.tintColor ?: UIColor.clearColor,
         toggle.superview.tintColor ?: UIColor.clearColor,
         toggle.tintColor ?: UIColor.clearColor,
-        UIColor.systemBlueColor
+        UIColor.systemGreenColor
     ];
     for (UIColor *candidate in candidates) {
         if (!candidate || candidate == UIColor.clearColor) continue;
         if (LGSwitchColorLooksTooDarkForAccent(candidate)) continue;
         return candidate;
     }
-    return UIColor.systemBlueColor;
+    return UIColor.systemGreenColor;
 }
 
 static BOOL LGSwitchDiagnosticsEnabled(void) {
@@ -168,7 +168,7 @@ static void LGSettingsSwitchScheduleAutoContract(LGPrefsLiquidSwitch *self_) {
 }
 
 - (void)commonInit {
-    self.onTintColor = UIColor.systemBlueColor;
+    self.onTintColor = UIColor.systemGreenColor;
     self.tintColor = UIColor.clearColor;
     self.thumbTintColor = UIColor.clearColor;
     self.backgroundColor = UIColor.clearColor;

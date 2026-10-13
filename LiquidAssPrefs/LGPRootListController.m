@@ -37,11 +37,11 @@
     UIButton *moreOptionsButton = (UIButton *)[self navCardWithTitle:LGPrefsSurfaceTitle(LGPrefsSurfaceMoreOptions) subtitle:LGPrefsSurfaceSubtitle(LGPrefsSurfaceMoreOptions) color:LGPrefsSurfaceTintColor(LGPrefsSurfaceMoreOptions) symbolName:LGPrefsSurfaceSymbolName(LGPrefsSurfaceMoreOptions) action:@selector(handleAboutPressed)];
     UIView *miscSection = [self rootSectionViewWithTitle:LGLocalized(@"prefs.section.misc.title")
                                                 subtitle:nil];
-    UIButton *respringButton = (UIButton *)[self navCardWithTitle:LGLocalized(@"prefs.misc.respring.title") subtitle:LGLocalized(@"prefs.misc.respring.subtitle") color:[UIColor systemBlueColor] symbolName:@"arrow.counterclockwise.circle.fill" action:@selector(handleRespringPressed)];
-    UIButton *safeModeButton = (UIButton *)[self navCardWithTitle:LGLocalized(@"prefs.misc.exit_safe_mode.title") subtitle:LGLocalized(@"prefs.misc.exit_safe_mode.subtitle") color:[UIColor systemBlueColor] symbolName:@"exclamationmark.circle.fill" action:@selector(handleExitSafeModePressed)];
+    UIButton *respringButton = (UIButton *)[self navCardWithTitle:LGLocalized(@"prefs.misc.respring.title") subtitle:LGLocalized(@"prefs.misc.respring.subtitle") color:[UIColor systemOrangeColor] symbolName:@"arrow.counterclockwise.circle.fill" action:@selector(handleRespringPressed)];
+    UIButton *safeModeButton = (UIButton *)[self navCardWithTitle:LGLocalized(@"prefs.misc.exit_safe_mode.title") subtitle:LGLocalized(@"prefs.misc.exit_safe_mode.subtitle") color:[UIColor systemRedColor] symbolName:@"exclamationmark.circle.fill" action:@selector(handleExitSafeModePressed)];
     self.lg_safeModeButton = safeModeButton;
     UIButton *aboutButton = (UIButton *)[self navCardWithTitle:LGPrefsSurfaceTitle(LGPrefsSurfaceSettings) subtitle:LGPrefsSurfaceSubtitle(LGPrefsSurfaceSettings) color:LGPrefsSurfaceTintColor(LGPrefsSurfaceSettings) symbolName:LGPrefsSurfaceSymbolName(LGPrefsSurfaceSettings) action:@selector(openPrefsSettings)];
-    UIButton *supportButton = (UIButton *)[self navCardWithTitle:LGLocalized(@"prefs.misc.support.title") subtitle:LGLocalized(@"prefs.misc.support.subtitle") color:[UIColor systemBlueColor] image:[self discordIcon] action:@selector(handleSupportPressed)];
+    UIButton *supportButton = (UIButton *)[self navCardWithTitle:LGLocalized(@"prefs.misc.support.title") subtitle:LGLocalized(@"prefs.misc.support.subtitle") color:[UIColor colorWithRed:0.345 green:0.396 blue:0.949 alpha:1.0] image:[self discordIcon] action:@selector(handleSupportPressed)];
     self.lg_menuButtons = @[surfacesButton];
     [self.lg_stackView addArrangedSubview:mainSection];
     [self.lg_stackView addArrangedSubview:[self globalToggleCard]];
